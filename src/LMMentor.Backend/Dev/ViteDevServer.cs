@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.Net.Sockets;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 
 namespace LMMentor.Backend.Dev;
 
@@ -12,7 +10,6 @@ public sealed class ViteDevServer : IAsyncDisposable
 {
     private readonly ILogger<ViteDevServer> _logger;
     private readonly Process? _process;
-    private readonly Task? _exitTask;
 
     public string Url { get; }
 
@@ -54,7 +51,7 @@ public sealed class ViteDevServer : IAsyncDisposable
         var hostPort = new Uri(url);
         Ready = WaitForReadyAsync(hostPort.Host, hostPort.Port);
 
-        _exitTask = Task.Run(async () =>
+        Task.Run(async () =>
         {
             await PumpAsync(_process.StandardOutput, stdout: true).ConfigureAwait(false);
             await PumpAsync(_process.StandardError, stdout: false).ConfigureAwait(false);
