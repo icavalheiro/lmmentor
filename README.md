@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/.NET-10.0%20Native%20AOT-purple.svg" alt=".NET 10 Native AOT" />
   <img src="https://img.shields.io/badge/UI-React%20%2B%20Mantine-blue.svg" alt="React + Mantine" />
   <img src="https://img.shields.io/badge/database-LiteDB-green.svg" alt="LiteDB" />
-  <img src="https://img.shields.io/badge/license-MIT-informational.svg" alt="License" />
+  <img src="https://img.shields.io/badge/license-AGPL%20v3-blue.svg" alt="License: AGPL v3" />
 </p>
 
 ---
@@ -134,4 +134,4 @@ When running in development (`ASPNETCORE_ENVIRONMENT=Development`), the backend 
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
