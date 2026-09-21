@@ -4,6 +4,7 @@ obj/
 *.user
 .vs/
 publish/
+wwwroot/
 
 # Node / Vite
 node_modules/
