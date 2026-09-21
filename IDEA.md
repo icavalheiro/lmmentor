@@ -9,8 +9,9 @@ Think of it as a small, opinionated, single-binary alternative to [LiteLLM](http
 ## Core Value Proposition
 
 - **One binary, zero dependencies**: .NET Native AOT compilation produces a single self-contained executable. No Python runtime, no virtualenv, no heavy dependency tree.
-- **SQLite persistence**: all state (providers, models, tokens, usage metrics) lives in a single local SQLite file. Trivially backed up, trivially deployed.
+- **LiteDB persistence**: all state (providers, models, tokens, usage metrics) lives in a single local LiteDB file. Pure managed C#, trivially backed up, trivially deployed.
 - **OpenAI-compatible in, OpenAI-compatible out**: any client that speaks the OpenAI API (`/v1/chat/completions`, `/v1/models`, etc.) can point at LMMentor with just a base URL and an API key change.
+- **Low latency, low memory by design**: LMMentor is a thin relay — it streams tokens straight through to the client without buffering full responses, and keeps its own footprint small so it never becomes the bottleneck in front of the models.
 
 ## Key Features
 
@@ -38,8 +39,9 @@ Per call, per model, aggregated daily:
 - Input tokens / output tokens (from upstream `usage` responses; estimated via tokenizer when absent)
 - Total tokens
 - Cache hit / miss counts (prompt caching reported by providers, e.g. `cached_tokens`)
+- Generation speed: wall-clock generation time per call, enabling **average tokens per second** per model (output tokens ÷ generation time), shown as a rolling/daily average on the dashboard
 
-Metrics are queryable through the UI (dashboard with per-model breakdowns and daily trends).
+Metrics are queryable through the UI (dashboard with per-model breakdowns, daily trends, and avg tokens/sec).
 
 ### 6. API Token Management
 - Admins can create scoped API tokens for LMMentor's own public API.
@@ -47,12 +49,13 @@ Metrics are queryable through the UI (dashboard with per-model breakdowns and da
 - All requests to the public endpoint must present a valid token (`Authorization: Bearer <token>`).
 
 ### 7. Admin UI & Bootstrapped Credentials
-- Simple web UI (server-rendered or lightweight SPA) for:
+- React SPA (Vite + TypeScript + [Mantine](https://mantine.dev/) components, `src/LMMentor.AdminUI/`) served by the backend for:
   - Managing providers (add/edit/remove, test connection)
   - Refreshing model discovery and toggling model exposure
   - Creating/revoking API tokens
   - Viewing usage metrics
-- **First-run bootstrap**: on first startup, LMMentor generates an admin username + password (or admin token), prints them to the console, and stores a hash in SQLite. Subsequent logins use those credentials; no external identity provider required.
+- **Front-end**: the admin UI is a React SPA built with Vite, TypeScript, and the [Mantine](https://mantine.dev/) component library (`src/LMMentor.AdminUI/`); its production build is embedded into / served statically by the LMMentor backend, keeping the single-binary deployment.
+- **First-run bootstrap**: on first startup, LMMentor generates an admin username + password (or admin token), prints them to the console, and stores a hash in LiteDB. Subsequent logins use those credentials; no external identity provider required.
 
 ## Architecture Sketch
 
@@ -60,7 +63,7 @@ Metrics are queryable through the UI (dashboard with per-model breakdowns and da
 flowchart LR
     C[OpenAI-compatible clients] -->|Bearer token| GW[LMMentor<br/>/v1/* public API]
     UI[Admin UI] -->|admin session| GW
-    GW --> DB[(SQLite)]
+    GW --> DB[(LiteDB)]
     GW --> P1[Provider A<br/>OpenAI-compatible]
     GW --> P2[Provider B<br/>Ollama / vLLM / ...]
     GW --> P3[Provider N]
@@ -71,48 +74,64 @@ flowchart LR
 ```
 lmmentor/
 ├── src/
-│   └── LmMentor/
-│       ├── Program.cs              # AOT entrypoint, DI wiring
-│       ├── Api/                    # Public OpenAI-compatible endpoints
-│       │   ├── ChatCompletionsEndpoint.cs
-│       │   └── ModelsEndpoint.cs
-│       ├── Admin/                  # Admin API + UI
-│       │   ├── Auth/               # Bootstrap credentials, session/token auth
-│       │   ├── ProvidersController.cs
-│       │   ├── TokensController.cs
-│       │   └── MetricsController.cs
-│       ├── Upstream/               # Provider clients, model discovery, routing
-│       │   ├── IProviderClient.cs
-│       │   ├── OpenAiCompatibleClient.cs
-│       │   └── ModelDiscovery.cs
-│       ├── Data/                   # SQLite (EF Core or Microsoft.Data.Sqlite)
-│       │   ├── LmMentorDb.cs
-│       │   └── Entities/           # Provider, Model, ApiToken, UsageDaily...
-│       └── Metrics/                # Token counting, cache hit/miss accounting
-├── tests/
-│   └── LmMentor.Tests/
+│   ├── LMMentor.slnx               # Solution file (all projects live under src/)
+│   ├── LMMentor/                   # ASP.NET Core AOT backend (API + admin server)
+│   │   ├── Program.cs              # AOT entrypoint, DI wiring
+│   │   ├── Api/                    # Public OpenAI-compatible endpoints
+│   │   │   ├── ChatCompletionsEndpoint.cs
+│   │   │   └── ModelsEndpoint.cs
+│   │   ├── Admin/                  # Admin API (consumed by the SPA)
+│   │   │   ├── Auth/               # Bootstrap credentials, session/token auth
+│   │   │   ├── ProvidersController.cs
+│   │   │   ├── TokensController.cs
+│   │   │   └── MetricsController.cs
+│   │   ├── Upstream/               # Provider clients, model discovery, routing
+│   │   │   ├── IProviderClient.cs
+│   │   │   ├── OpenAiCompatibleClient.cs
+│   │   │   └── ModelDiscovery.cs
+│   │   ├── Data/                   # LiteDB (BsonDocument collections)
+│   │   │   ├── LMMentorDb.cs
+│   │   │   └── Entities/           # Provider, Model, ApiToken, UsageDaily...
+│   │   └── Metrics/                # Token counting, cache hit/miss accounting
+│   ├── LMMentor.AdminUI/           # Admin front-end: React SPA (Vite + TypeScript + Mantine)
+│   │   ├── src/
+│   │   │   ├── main.tsx
+│   │   │   ├── App.tsx
+│   │   │   ├── api/                # Typed clients for the admin API
+│   │   │   └── pages/              # Providers, Models, Tokens, Metrics/Dashboard
+│   │   ├── index.html
+│   │   ├── vite.config.ts          # Dev proxy to backend; build output served by LMMentor
+│   │   └── package.json
+│   └── LMMentor.Tests/             # xUnit test project (inside src/, part of the slnx)
 └── IDEA.md
 ```
 
-### Data Model (SQLite)
+### Data Model (LiteDB collections)
 
-| Table | Purpose |
+| Collection | Purpose |
 |---|---|
 | `providers` | name, base_url, api_token (encrypted at rest), enabled, discovery settings |
 | `models` | provider_id, upstream_model_id, display_name, context_size, exposed |
 | `api_tokens` | token hash, name, allowed model ids (nullable = all), created_at, revoked_at |
-| `usage_calls` | timestamp, model_id, token_id, input_tokens, output_tokens, cache_hit/miss, latency_ms |
-| `usage_daily` | pre-aggregated per day/model: calls, tokens in/out/total, cache hits/misses |
+| `usage_calls` | timestamp, model_id, token_id, input_tokens, output_tokens, cache_hit/miss, latency_ms, generation_time_ms |
+| `usage_daily` | pre-aggregated per day/model: calls, tokens in/out/total, cache hits/misses, avg tokens/sec (sum of output tokens ÷ sum of generation time) |
 | `admin_credentials` | hashed admin password/token (bootstrap) |
 
 ## Technical Decisions
 
-- **Runtime**: .NET 9+ ASP.NET Minimal APIs, published with Native AOT (`PublishAot=true`) for a single static binary.
+- **Runtime**: .NET 10 ASP.NET Minimal APIs, published with Native AOT (`PublishAot=true`) for a single static binary.
+- **Admin UI stack**: React + TypeScript + Vite, using [Mantine](https://mantine.dev/) for components (forms, tables, charts via `@mantine/charts`); built assets are embedded in the backend and served statically.
 - **HTTP client**: `IHttpClientFactory` / named clients per provider; SSE streaming via `HttpCompletionOption.ResponseHeadersRead`.
-- **Persistence**: SQLite via EF Core (or raw `Microsoft.Data.Sqlite` if keeping the dependency surface minimal — AOT-friendly either way).
+- **Persistence**: [LiteDB](https://www.litedb.org/) — a single-file, pure managed C# NoSQL database. No native interop, which keeps Native AOT compilation clean; entities map directly to `BsonDocument` collections.
 - **Token counting**: prefer upstream-reported usage; fall back to a lightweight local estimator when providers omit it.
-- **Secrets at rest**: provider API tokens and admin password stored hashed/encrypted in SQLite (e.g. AES-GCM with a key derived from a machine-local secret or an optional env var).
+- **Secrets at rest**: provider API tokens and admin password stored hashed/encrypted in LiteDB (e.g. AES-GCM with a key derived from a machine-local secret or an optional env var).
 - **No external services**: no Redis, no Postgres, no message queue — everything fits in one process and one file.
+- **Latency & memory-conscious relaying**: the aggregator adds as little overhead as possible between client and model.
+  - Stream SSE responses token-by-token (`HttpCompletionOption.ResponseHeadersRead` + async pipe/copy) instead of accumulating the full body; time-to-first-token is dominated by the upstream, not by LMMentor.
+  - Avoid re-serializing/parsing payloads where possible — forward request bodies and stream chunks with minimal copying (no intermediate `string` materialization of large payloads).
+  - Keep per-request allocations low and reuse buffers; metrics/usage accounting is done incrementally from streamed `usage` data rather than by holding whole conversations in memory.
+  - Connection pooling via `IHttpClientFactory` to upstreams to avoid repeated TLS handshakes on the hot path.
+  - Target: LMMentor's own added latency (excluding upstream generation) should be negligible, and steady-state memory should stay flat regardless of response size.
 
 ## Non-Goals (v1)
 
@@ -123,8 +142,8 @@ lmmentor/
 
 ## Milestones
 
-1. **M1 — Skeleton**: AOT app boots, SQLite initialized, admin credentials bootstrapped and printed to console, minimal UI shell.
+1. **M1 — Skeleton**: AOT app boots, LiteDB database initialized, admin credentials bootstrapped and printed to console, minimal UI shell.
 2. **M2 — Providers & Discovery**: add providers via UI, model discovery with context sizes, expose/unexpose models.
 3. **M3 — Public API**: token-gated `/v1/models` + `/v1/chat/completions` (incl. streaming) routed to upstreams.
-4. **M4 — Metrics**: per-call and daily aggregation, cache hit/miss tracking, dashboard.
-5. **M5 — Hardening**: token scoping/revocation, connection tests, refresh scheduling, packaging (single-file AOT release).
+4. **M4 — Metrics**: per-call and daily aggregation, cache hit/miss tracking, avg tokens/sec per model, dashboard.
+5. **M5 — Hardening**: token scoping/revocation, connection tests, refresh scheduling, latency/memory profiling of the relay path, packaging (single-file AOT release).
