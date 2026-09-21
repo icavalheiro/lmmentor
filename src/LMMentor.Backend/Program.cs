@@ -1,10 +1,25 @@
+using LMMentor.Backend.Admin;
 using LMMentor.Backend.Data;
 using LMMentor.Backend.Dev;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpClient();
 builder.AddLmMentorData();
+
+// Sessão do admin via cookie autenticado (HttpOnly, SameSite=Lax).
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "lmmentor.admin";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+    });
+
+builder.Services.AddAuthorization();
 
 // Em desenvolvimento (dotnet watch), o backend sobe o Vite dev server e faz proxy da UI para ele.
 // Defina LMMENTOR_DEV_PROXY=false para desativar e servir o build estático mesmo em Development.
@@ -17,6 +32,9 @@ if (devProxyEnabled)
 }
 
 var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.BootstrapAdminCredentials();
 
@@ -35,5 +53,6 @@ else
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+app.MapAuthEndpoints();
 
 app.Run();

@@ -86,3 +86,68 @@ body {
 .login-card button:hover {
   background-color: #3b7bf0;
 }
+
+.login-card button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background-color: #3a1d1f;
+  border: 1px solid #5c2b2e;
+  border-radius: 6px;
+  color: #ff8a8a;
+  font-size: 0.875rem;
+}
+
+.dashboard-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background-color: #1e2127;
+  border-bottom: 1px solid #2c3038;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.dashboard-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #9aa0a6;
+}
+
+.dashboard-user button {
+  padding: 0.4rem 0.9rem;
+  background-color: transparent;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.dashboard-user button:hover {
+  background-color: #2c3038;
+}
+
+.dashboard-content {
+  flex: 1;
+  padding: 2rem;
+}
+
+.dashboard-content h2 {
+  margin-top: 0;
+}

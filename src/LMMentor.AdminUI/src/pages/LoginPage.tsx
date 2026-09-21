@@ -1,14 +1,29 @@
 import { useState } from 'react';
+import { login } from '../api/auth';
 
 export function LoginPage ()
 {
     const [ username, setUsername ] = useState( '' );
     const [ password, setPassword ] = useState( '' );
+    const [ error, setError ] = useState( '' );
+    const [ submitting, setSubmitting ] = useState( false );
 
-    // Sem funcionalidade ainda: o submit apenas evita o reload da página.
-    function handleSubmit ( event: React.FormEvent<HTMLFormElement> )
+    async function handleSubmit ( event: React.SubmitEvent<HTMLFormElement> )
     {
         event.preventDefault();
+        setSubmitting( true );
+        setError( '' );
+
+        try
+        {
+            await login( username, password );
+            // Sessão estabelecida via cookie; recarrega para o App exibir o dashboard.
+            window.location.href = '/admin/';
+        } catch
+        {
+            setError( 'Usuário ou senha inválidos.' );
+            setSubmitting( false );
+        }
     }
 
     return (
@@ -36,7 +51,11 @@ export function LoginPage ()
                     autoComplete="current-password"
                 />
 
-                <button type="submit">Entrar</button>
+                { error && <p className="login-error">{ error }</p> }
+
+                <button type="submit" disabled={ submitting }>
+                    { submitting ? 'Entrando…' : 'Entrar' }
+                </button>
             </form>
         </div>
     );
