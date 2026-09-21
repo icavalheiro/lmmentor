@@ -45,7 +45,8 @@ public static class ViteIntegrationExtensions
         app.MapFallback(async context =>
         {
             var path = context.Request.Path;
-            var isAdminRoute = path == "/admin" || path.StartsWithSegments("/admin/");
+            // Prefixo "/admin" (sem barra final): no .NET 10, StartsWithSegments("/admin/") falha para subcaminhos.
+            var isAdminRoute = path == "/admin" || path.StartsWithSegments("/admin");
             if (!isAdminRoute)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;

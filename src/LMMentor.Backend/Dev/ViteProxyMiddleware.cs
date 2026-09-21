@@ -17,8 +17,10 @@ public sealed class ViteProxyMiddleware
     public async Task InvokeAsync(HttpContext context, IHttpClientFactory httpClientFactory, ViteDevServer vite)
     {
         // Somente /admin e /admin/* vão para o Vite dev server; todas as demais rotas seguem para o backend.
+        // O prefixo é "/admin" (sem barra final): no .NET 10, StartsWithSegments("/admin/") só casa
+        // com o path exato "/admin/" e falha para subcaminhos como "/admin/favicon.svg".
         var path = context.Request.Path;
-        var isAdminRoute = path == "/admin" || path.StartsWithSegments("/admin/");
+        var isAdminRoute = path == "/admin" || path.StartsWithSegments("/admin");
         if (!isAdminRoute)
         {
             await _next(context);

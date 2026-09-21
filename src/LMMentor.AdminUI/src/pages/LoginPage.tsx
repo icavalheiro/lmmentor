@@ -1,5 +1,18 @@
 import { useState } from 'react';
+import
+{
+    Button,
+    Card,
+    Container,
+    Image,
+    PasswordInput,
+    Stack,
+    Text,
+    TextInput,
+} from '@mantine/core';
 import { login } from '../api/auth';
+// Logo compartilhado com o README, servido direto da pasta assets na raiz do repo.
+import logoUrl from '../../../../assets/readme-logo.png';
 
 export function LoginPage ()
 {
@@ -21,42 +34,63 @@ export function LoginPage ()
             window.location.href = '/admin/';
         } catch
         {
-            setError( 'Usuário ou senha inválidos.' );
+            setError( 'Invalid username or password.' );
             setSubmitting( false );
         }
     }
 
     return (
-        <div className="login-page">
-            <form className="login-card" onSubmit={ handleSubmit }>
-                <h1>LMMentor</h1>
-                <p className="login-subtitle">Faça login para gerenciar o agregador</p>
+        <Container size="xs" py="xl">
+            <Card withBorder shadow="sm" radius="md" padding="lg">
+                <Stack gap="md">
+                    <div style={ { textAlign: 'center' } }>
+                        {/* Logo compartilhado com o README, direto da pasta assets. */ }
+                        <Image
+                            src={ logoUrl }
+                            alt="LMMentor"
+                            width="100%"
+                            style={ { maxWidth: 275 } }
+                            mx="auto"
+                        />
+                        <Text c="dimmed" size="sm" ta="center" mt={ 4 }>
+                            Sign in to manage the aggregator
+                        </Text>
+                    </div>
 
-                <label htmlFor="username">Usuário</label>
-                <input
-                    id="username"
-                    type="text"
-                    value={ username }
-                    onChange={ ( event ) => setUsername( event.target.value ) }
-                    autoComplete="username"
-                    autoFocus
-                />
+                    <form onSubmit={ handleSubmit }>
+                        <Stack gap="md">
+                            { error && (
+                                <Text c="red" size="sm" ta="center">
+                                    { error }
+                                </Text>
+                            ) }
 
-                <label htmlFor="password">Senha</label>
-                <input
-                    id="password"
-                    type="password"
-                    value={ password }
-                    onChange={ ( event ) => setPassword( event.target.value ) }
-                    autoComplete="current-password"
-                />
+                            <TextInput
+                                label="Username"
+                                placeholder="admin"
+                                value={ username }
+                                onChange={ ( e ) => setUsername( e.currentTarget.value ) }
+                                autoComplete="username"
+                                autoFocus
+                                required
+                            />
 
-                { error && <p className="login-error">{ error }</p> }
+                            <PasswordInput
+                                label="Password"
+                                placeholder="••••••••"
+                                value={ password }
+                                onChange={ ( e ) => setPassword( e.currentTarget.value ) }
+                                autoComplete="current-password"
+                                required
+                            />
 
-                <button type="submit" disabled={ submitting }>
-                    { submitting ? 'Entrando…' : 'Entrar' }
-                </button>
-            </form>
-        </div>
+                            <Button type="submit" fullWidth loading={ submitting }>
+                                { submitting ? 'Signing in…' : 'Sign in' }
+                            </Button>
+                        </Stack>
+                    </form>
+                </Stack>
+            </Card>
+        </Container>
     );
 }
