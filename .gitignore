@@ -1,0 +1,16 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+publish/
+
+# Node / Vite
+node_modules/
+dist/
+npm-debug.log*
+
+# LiteDB (runtime data)
+*.db
+*.db-shm
+*.db-wal
