@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="LMMentor Logo" width="180" height="180" />
+  <img src="assets/readme-logo.png" alt="LMMentor Logo" width="180" height="180" />
 </p>
 
 <h1 align="center">LMMentor</h1>
@@ -16,6 +16,10 @@
   <img src="https://img.shields.io/badge/UI-React%20%2B%20Mantine-blue.svg" alt="React + Mantine" />
   <img src="https://img.shields.io/badge/database-LiteDB-green.svg" alt="LiteDB" />
   <img src="https://img.shields.io/badge/license-AGPL%20v3-blue.svg" alt="License: AGPL v3" />
+</p>
+
+<p align="center">
+  <em>💡<strong>LMMentor</strong> should be read as "elementor" (el-uh-MEN-tor, /ˌɛl.əˈmɛn.tər/). </em>
 </p>
 
 ---
@@ -77,8 +81,10 @@ flowchart LR
 
 ```
 lmmentor/
-├── assets/
-│   └── logo.svg                    # Project logo
+├── assets/                         # Identidade visual compartilhada (README + AdminUI)
+│   ├── logo.svg                    # Logo do projeto (cristal do cajado + os quatro elementos)
+│   ├── favicon.svg                 # Ícone de aba do AdminUI (mesma arte, em 64×64)
+│   └── icons.svg                   # Sprite de ícones usado pelo AdminUI
 ├── src/
 │   ├── LMMentor.slnx               # Solution file
 │   ├── LMMentor.Backend/           # ASP.NET Core Native AOT backend
@@ -87,11 +93,14 @@ lmmentor/
 │   │   └── wwwroot/                # Built Admin UI static assets
 │   └── LMMentor.AdminUI/           # Admin UI (React + TypeScript + Vite + Mantine)
 │       ├── src/                    # Frontend source code (pages, components, api)
-│       ├── public/                 # Static public assets
-│       └── vite.config.ts          # Vite configuration with backend proxy
+│       └── vite.config.ts          # Vite config (build para wwwroot, publicDir em /assets)
 ├── IDEA.md                         # Architecture & product specification
 └── README.md
 ```
+
+> [!NOTE]
+> Os arquivos de `/assets` são a única fonte de verdade da identidade visual: o README usa `assets/logo.svg`
+> diretamente e o AdminUI os consome via `publicDir` do Vite (não existem cópias dentro de `src/`).
 
 ---
 
