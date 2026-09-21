@@ -1,5 +1,4 @@
 using LMMentor.Backend.Dev;
-using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,10 +11,7 @@ var devProxyEnabled = builder.Environment.IsDevelopment()
 
 if (devProxyEnabled)
 {
-    var adminUiPath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "LMMentor.AdminUI"));
-    const string viteUrl = "http://localhost:5173";
-
-    builder.Services.AddSingleton<ViteDevServer>(sp => new ViteDevServer(sp.GetRequiredService<ILogger<ViteDevServer>>(), adminUiPath, viteUrl));
+    builder.AddViteIntegration();
 }
 
 var app = builder.Build();
@@ -26,35 +22,12 @@ app.MapGet("/", () => Results.Redirect("/admin/"));
 if (devProxyEnabled)
 {
     // Somente /admin/* vai para o Vite dev server; todas as demais rotas seguem para o backend.
-    app.UseMiddleware<ViteProxyMiddleware>();
+    app.UseViteProxy();
 }
 else
 {
     // Produção: serve o build do AdminUI emitido em wwwroot pelo Vite, sob o prefixo /admin.
-    var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-    Directory.CreateDirectory(webRoot);
-
-    app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(webRoot), RequestPath = "/admin" });
-
-    var indexHtml = Path.Combine(webRoot, "index.html");
-    if (File.Exists(indexHtml))
-    {
-        // /admin/ e rotas SPA do AdminUI voltam para o index.html.
-        app.MapGet("/admin/", async context => await context.Response.SendFileAsync(indexHtml));
-
-        app.MapFallback(async context =>
-        {
-            var path = context.Request.Path;
-            var isAdminRoute = path == "/admin" || path.StartsWithSegments("/admin/");
-            if (!isAdminRoute)
-            {
-                context.Response.StatusCode = StatusCodes.Status404NotFound;
-                return;
-            }
-
-            await context.Response.SendFileAsync(indexHtml);
-        });
-    }
+    app.UseAdminSpaFiles();
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
