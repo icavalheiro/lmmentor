@@ -261,7 +261,7 @@ public sealed class RelayService
 
 /// <summary>
 /// Stream que encaminha o SSE do upstream e, ao final (ou em falha), extrai o usage
-/// do último chunk para registrar no log de uso.
+/// dos últimos chunks para registrar no log de uso.
 /// </summary>
 internal sealed class RelayingStream(
     Stream inner,
@@ -270,7 +270,13 @@ internal sealed class RelayingStream(
     UsageService usage,
     HttpResponseMessage upstreamResponse) : Stream
 {
+    // Janela de linhas SSE mantidas em memória para localizar o chunk com "usage".
+    // Os chunks não carregam contagem: os totais da requisição vêm num único objeto
+    // "usage" no penúltimo chunk (o OpenAI envia [DONE] depois), então 16 linhas bastam.
+    private const int MaxTrackedChunks = 16;
+
     private readonly List<string> _dataChunks = [];
+    private string _pendingLine = "";
     private bool _completed;
 
     public override bool CanRead => true;
@@ -300,13 +306,29 @@ internal sealed class RelayingStream(
 
     private void CaptureChunk(string text)
     {
-        // Mantém apenas as linhas "data: ..." do SSE para inspecionar o último chunk.
-        foreach (var line in text.Split('\n'))
+        // Uma linha SSE pode ser dividida entre leituras de rede: acumula o fragmento parcial.
+        _pendingLine += text;
+
+        var lines = _pendingLine.Split('\n');
+        _pendingLine = lines[^1];
+
+        foreach (var line in lines)
         {
-            if (line.StartsWith("data:", StringComparison.Ordinal))
+            if (!line.StartsWith("data:", StringComparison.Ordinal))
             {
-                _dataChunks.Clear();
-                _dataChunks.Add(line["data:".Length..].Trim());
+                continue;
+            }
+
+            var payload = line["data:".Length..].Trim();
+            if (payload.Length == 0)
+            {
+                continue;
+            }
+
+            _dataChunks.Add(payload);
+            if (_dataChunks.Count > MaxTrackedChunks)
+            {
+                _dataChunks.RemoveAt(0);
             }
         }
     }
@@ -321,7 +343,7 @@ internal sealed class RelayingStream(
         _completed = true;
         try
         {
-            // Percorre de trás para frente em busca do chunk com usage (o último, no OpenAI).
+            // Percorre de trás para frente em busca do chunk com usage (chega antes do [DONE], no OpenAI).
             for (var i = _dataChunks.Count - 1; i >= 0; i--)
             {
                 var chunk = _dataChunks[i];
