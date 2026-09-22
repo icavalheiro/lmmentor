@@ -1,0 +1,21 @@
+# Build outputs e artefatos locais
+**/bin/
+**/obj/
+src/LMMentor.Backend/wwwroot/
+
+# Dependências (reinstaladas no build)
+**/node_modules/
+
+# Banco de dados local e segredos
+*.db
+.env
+.env.*
+
+# IDE / SO
+.vs/
+.vscode/
+.idea/
+.git/
+.gitignore
+Thumbs.db
+Desktop.ini
