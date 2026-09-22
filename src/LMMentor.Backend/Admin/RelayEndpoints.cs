@@ -14,7 +14,23 @@ public static class RelayEndpoints
         var group = app.MapGroup("/v1");
 
         // Lista os modelos habilitados (nome exposto), no formato do OpenAI.
-        group.MapGet("/models", (RelayService relay) => Results.Json(relay.ListModels()));
+        group.MapGet("/models", (HttpRequest request, RelayService relay) =>
+        {
+            var apiKeyValue = ExtractBearerToken(request);
+            if (apiKeyValue is null)
+            {
+                return Error(HttpStatusCode.Unauthorized, "Missing API key. Use Authorization: Bearer sk-lm-...");
+            }
+
+            try
+            {
+                return Results.Json(relay.ListModels(apiKeyValue));
+            }
+            catch (RelayException ex)
+            {
+                return Error(ex.StatusCode, ex.Message);
+            }
+        });
 
         // Chat completion: encaminha para o endpoint upstream e registra o uso.
         group.MapPost("/chat/completions", async (HttpRequest request, HttpResponse response, RelayService relay, CancellationToken ct) =>

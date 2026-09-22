@@ -61,11 +61,12 @@ public sealed class RelayService
         _usage = usage;
     }
 
-    /// <summary>Modelos habilitados, no formato da lista de modelos do OpenAI.</summary>
-    public object ListModels()
+    /// <summary>Modelos habilitados e permitidos pela chave, no formato da lista do OpenAI.</summary>
+    public object ListModels(string apiKeyValue)
     {
+        var key = FindActiveKey(apiKeyValue);
         var models = _endpoints.GetAllModelDtos()
-            .Where(m => m.Enabled)
+            .Where(m => m.Enabled && IsModelAllowed(key, m.Id))
             .Select(m => new
             {
                 id = EndpointService.EffectiveName(ToEntity(m)),
@@ -81,22 +82,20 @@ public sealed class RelayService
     /// <summary>Resolve o modelo pelo nome exposto (ou id upstream) e valida a chave do cliente.</summary>
     public ResolvedModel Resolve(string apiKeyValue, string model)
     {
-        var key = _keys.FindByKeyValue(apiKeyValue);
-        if (key is null || key.RevokedAt is not null)
-        {
-            throw new RelayException(HttpStatusCode.Unauthorized, "Invalid API key.");
-        }
+        var key = FindActiveKey(apiKeyValue);
 
-        // Nome exposto (alias ou upstream), comparado sem diferenciar maiúsculas.
+        // Aceita o nome exposto e o id original, para clientes configurados antes de um alias.
         var match = _endpoints.GetAllModels().FirstOrDefault(m =>
-            m.Enabled && string.Equals(EndpointService.EffectiveName(m), model, StringComparison.OrdinalIgnoreCase));
+            m.Enabled &&
+            (string.Equals(EndpointService.EffectiveName(m), model, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(m.UpstreamModelId, model, StringComparison.OrdinalIgnoreCase)));
 
         if (match is null)
         {
             throw new RelayException(HttpStatusCode.NotFound, $"Model '{model}' not found.");
         }
 
-        if (key.AllowedModelIds is { Count: > 0 } && !key.AllowedModelIds.Contains(match.Id))
+        if (!IsModelAllowed(key, match.Id))
         {
             throw new RelayException(HttpStatusCode.Forbidden, "This API key is not allowed to use the requested model.");
         }
@@ -113,9 +112,9 @@ public sealed class RelayService
     /// <summary>Encaminha uma requisição de chat completion para o upstream e registra o uso.</summary>
     public async Task<RelayResponse> RelayChatAsync(ResolvedModel resolved, Stream requestBody, CancellationToken ct)
     {
-        var (isStreaming, bodyToForward) = PrepareRequestBody(requestBody);
+        var (isStreaming, bodyToForward) = PrepareRequestBody(requestBody, resolved.Model.UpstreamModelId);
 
-        using var client = _httpClientFactory.CreateClient();
+        var client = _httpClientFactory.CreateClient();
         // Streaming exige leitura a partir dos headers; o timeout cobre apenas a conexão.
         client.Timeout = TimeSpan.FromSeconds(30);
 
@@ -131,36 +130,53 @@ public sealed class RelayService
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", resolved.Endpoint.AccessToken);
         }
 
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/json";
 
         if (!response.IsSuccessStatusCode)
         {
-            // Erro do upstream: encaminha a mensagem e não conta como uso bem-sucedido.
-            var errorBody = await response.Content.ReadAsStreamAsync(ct);
+            // Erro do upstream: preserva a mensagem e não conta como uso bem-sucedido.
+            var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
             _usage.Log(resolved.Model.Id, resolved.Key.Id, 0, 0, success: false);
-            return new RelayResponse(response.StatusCode, contentType, errorBody);
+            response.Dispose();
+            return new RelayResponse(response.StatusCode, contentType, new MemoryStream(errorBody));
         }
 
         if (isStreaming)
         {
-            // Encaminha o SSE e captura o usage do último chunk ao final do stream.
+            // O response permanece aberto: seu descarte ocorre junto com o stream SSE.
             var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
-            var relayed = new RelayingStream(upstreamStream, resolved.Model.Id, resolved.Key.Id, _usage);
+            var relayed = new RelayingStream(upstreamStream, resolved.Model.Id, resolved.Key.Id, _usage, response);
             return new RelayResponse(HttpStatusCode.OK, contentType, relayed);
         }
 
         // Não-streaming: lê a resposta completa para extrair o usage antes de devolver.
         var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
+        response.Dispose();
         LogUsageFromJson(responseBody, resolved.Model.Id, resolved.Key.Id, _usage);
         return new RelayResponse(HttpStatusCode.OK, contentType, new MemoryStream(responseBody));
     }
 
+    private ApiKeyEntity FindActiveKey(string apiKeyValue)
+    {
+        var key = _keys.FindByKeyValue(apiKeyValue);
+        if (key is null || key.RevokedAt is not null)
+        {
+            throw new RelayException(HttpStatusCode.Unauthorized, "Invalid API key.");
+        }
+
+        return key;
+    }
+
+    private static bool IsModelAllowed(ApiKeyEntity key, string modelId) =>
+        key.AllowedModelIds is not { Count: > 0 } || key.AllowedModelIds.Contains(modelId);
+
     /// <summary>
     /// Detecta streaming e, quando presente, injeta stream_options.include_usage para o
-    /// upstream reportar tokens no último chunk. Retorna (isStreaming, corpo a enviar).
+    /// upstream reportar tokens no último chunk. Também substitui o alias público pelo
+    /// identificador real aceito pelo upstream. Retorna (isStreaming, corpo a enviar).
     /// </summary>
-    private static (bool isStreaming, Stream body) PrepareRequestBody(Stream requestBody)
+    private static (bool isStreaming, Stream body) PrepareRequestBody(Stream requestBody, string upstreamModelId)
     {
         using var reader = new StreamReader(requestBody);
         var raw = reader.ReadToEnd();
@@ -169,12 +185,7 @@ public sealed class RelayService
         var root = doc.RootElement;
         var isStreaming = root.TryGetProperty("stream", out var streamProp) && streamProp.ValueKind == JsonValueKind.True;
 
-        if (!isStreaming)
-        {
-            return (false, new MemoryStream(System.Text.Encoding.UTF8.GetBytes(raw)));
-        }
-
-        // Reescreve o corpo substituindo/adicionando stream_options.include_usage.
+        // Reescreve o corpo para usar o id upstream e, nos streams, incluir usage.
         // Sem using: quem consome o stream (StreamContent) é responsável pelo descarte.
         var output = new MemoryStream();
         using (var writer = new Utf8JsonWriter(output))
@@ -182,7 +193,13 @@ public sealed class RelayService
             writer.WriteStartObject();
             foreach (var prop in root.EnumerateObject())
             {
-                if (prop.Name == "stream_options")
+                if (prop.Name == "model")
+                {
+                    writer.WriteString("model", upstreamModelId);
+                    continue;
+                }
+
+                if (isStreaming && prop.Name == "stream_options")
                 {
                     continue;
                 }
@@ -191,14 +208,18 @@ public sealed class RelayService
                 prop.Value.WriteTo(writer);
             }
 
-            writer.WriteStartObject("stream_options");
-            writer.WriteBoolean("include_usage", true);
-            writer.WriteEndObject();
+            if (isStreaming)
+            {
+                writer.WriteStartObject("stream_options");
+                writer.WriteBoolean("include_usage", true);
+                writer.WriteEndObject();
+            }
+
             writer.WriteEndObject();
         }
 
         output.Position = 0;
-        return (true, output);
+        return (isStreaming, output);
     }
 
     /// <summary>Extrai usage da resposta JSON completa e registra no log.</summary>
@@ -242,7 +263,12 @@ public sealed class RelayService
 /// Stream que encaminha o SSE do upstream e, ao final (ou em falha), extrai o usage
 /// do último chunk para registrar no log de uso.
 /// </summary>
-internal sealed class RelayingStream(Stream inner, string modelId, string apiKeyId, UsageService usage) : Stream
+internal sealed class RelayingStream(
+    Stream inner,
+    string modelId,
+    string apiKeyId,
+    UsageService usage,
+    HttpResponseMessage upstreamResponse) : Stream
 {
     private readonly List<string> _dataChunks = [];
     private bool _completed;
@@ -337,7 +363,14 @@ internal sealed class RelayingStream(Stream inner, string modelId, string apiKey
         if (disposing)
         {
             Complete();
-            inner.Dispose();
+            try
+            {
+                inner.Dispose();
+            }
+            finally
+            {
+                upstreamResponse.Dispose();
+            }
         }
 
         base.Dispose(disposing);
