@@ -10,6 +10,8 @@ services:
       # Com network_mode: host não há mapeamento de portas; a aplicação
       # escuta diretamente na porta do host.
       ASPNETCORE_URLS: http://+:6565
+    ports: #map ports on windows hosts
+      - 6565:6565
     volumes:
       - lmmentor-data:/data
     restart: unless-stopped
