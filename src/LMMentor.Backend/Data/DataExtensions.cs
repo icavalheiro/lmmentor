@@ -11,6 +11,7 @@ public static class DataExtensions
 
         builder.Services.AddSingleton(_ => new LMMentorDb(dbPath));
         builder.Services.AddSingleton<AdminCredentialService>();
+        builder.Services.AddSingleton<ApplicationSettingsService>();
         builder.Services.AddSingleton<ModelDiscoveryService>();
         builder.Services.AddSingleton<EndpointService>();
         builder.Services.AddSingleton<ApiKeyService>();

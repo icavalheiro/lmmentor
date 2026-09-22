@@ -17,10 +17,6 @@ public static class RelayEndpoints
         group.MapGet("/models", (HttpRequest request, RelayService relay) =>
         {
             var apiKeyValue = ExtractBearerToken(request);
-            if (apiKeyValue is null)
-            {
-                return Error(HttpStatusCode.Unauthorized, "Missing API key. Use Authorization: Bearer sk-lm-...");
-            }
 
             try
             {
@@ -36,10 +32,6 @@ public static class RelayEndpoints
         group.MapPost("/chat/completions", async (HttpRequest request, HttpResponse response, RelayService relay, CancellationToken ct) =>
         {
             var apiKeyValue = ExtractBearerToken(request);
-            if (apiKeyValue is null)
-            {
-                return Error(HttpStatusCode.Unauthorized, "Missing API key. Use Authorization: Bearer sk-lm-...");
-            }
 
             // Lê o corpo uma única vez; é reutilizado na resolução e no encaminhamento.
             string raw;

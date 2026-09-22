@@ -10,6 +10,7 @@ import { EndpointDetailPage } from './pages/EndpointDetailPage';
 import { EndpointsPage } from './pages/EndpointsPage';
 import { KeysPage } from './pages/KeysPage';
 import { LoginPage } from './pages/LoginPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 const queryClient = new QueryClient();
 
@@ -46,6 +47,7 @@ function AuthGate ()
           <Route path="endpoints/:id" element={ <EndpointDetailPage /> } />
           <Route path="keys" element={ <KeysPage /> } />
           <Route path="keys/new" element={ <AddKeyPage /> } />
+          <Route path="settings" element={ <SettingsPage /> } />
         </Route>
       </Routes>
     </HashRouter>

@@ -44,6 +44,11 @@ export interface ApiKey
     revokedAt: string | null;
 }
 
+export interface ApplicationSettings
+{
+    ollamaCompatibilityEnabled: boolean;
+}
+
 // Uso agregado por dia (para o gráfico do dashboard).
 export interface DailyUsage
 {

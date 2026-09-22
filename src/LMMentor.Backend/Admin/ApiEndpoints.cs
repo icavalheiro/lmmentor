@@ -10,6 +10,8 @@ public sealed record SetModelEnabledRequest(bool Enabled);
 
 public sealed record CreateKeyRequest(string Name, List<string>? AllowedModelIds);
 
+public sealed record UpdateSettingsRequest(bool OllamaCompatibilityEnabled);
+
 /// <summary>
 /// Endpoints de administração (protegidos por autenticação): CRUD de endpoints de API,
 /// modelos descobertos, chaves de API e resumo de uso para o dashboard.
@@ -88,6 +90,12 @@ public static class ApiEndpoints
 
         group.MapDelete("/keys/{id}", (string id, ApiKeyService keys) =>
             keys.Delete(id) ? Results.NoContent() : Results.NotFound());
+
+        // Configurações globais do serviço.
+        group.MapGet("/settings", (ApplicationSettingsService settings) => Results.Ok(settings.Get()));
+
+        group.MapPut("/settings", (UpdateSettingsRequest request, ApplicationSettingsService settings) =>
+            Results.Ok(settings.SetOllamaCompatibilityEnabled(request.OllamaCompatibilityEnabled)));
 
         // Resumo de uso para o dashboard.
         group.MapGet("/usage/summary", (UsageService usage, int? days) =>

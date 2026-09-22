@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as endpointsApi from './endpoints';
 import * as keysApi from './keys';
+import * as settingsApi from './settings';
 import { getUsageSummary } from './usage';
 
 // Chaves de query centralizadas para invalidação consistente.
@@ -8,6 +9,7 @@ export const queryKeys = {
     endpoints: [ 'endpoints' ] as const,
     models: [ 'models' ] as const,
     keys: [ 'keys' ] as const,
+    settings: [ 'settings' ] as const,
     usage: ( days: number ) => [ 'usage', days ] as const,
 };
 
@@ -24,6 +26,11 @@ export function useModels ()
 export function useKeys ()
 {
     return useQuery( { queryKey: queryKeys.keys, queryFn: keysApi.getKeys } );
+}
+
+export function useSettings ()
+{
+    return useQuery( { queryKey: queryKeys.settings, queryFn: settingsApi.getSettings } );
 }
 
 export function useUsageSummary ( days = 7 )
@@ -113,5 +120,14 @@ export function useDeleteKey ()
     return useMutation( {
         mutationFn: ( id: string ) => keysApi.deleteKey( id ),
         onSuccess: () => queryClient.invalidateQueries( { queryKey: queryKeys.keys } ),
+    } );
+}
+
+export function useUpdateSettings ()
+{
+    const queryClient = useQueryClient();
+    return useMutation( {
+        mutationFn: settingsApi.updateSettings,
+        onSuccess: () => queryClient.invalidateQueries( { queryKey: queryKeys.settings } ),
     } );
 }

@@ -86,6 +86,7 @@ else
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapApiEndpoints();
+app.MapOllamaCompatibilityEndpoints();
 
 // API pública OpenAI-compatible (autenticada por chave Bearer, sem cookie).
 app.MapRelayEndpoints();

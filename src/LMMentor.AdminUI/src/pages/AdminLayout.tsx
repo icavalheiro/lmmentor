@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { AppShell, Button, Group, Stack, Text } from '@mantine/core';
-import { IconGauge, IconKey, IconServer } from '@tabler/icons-react';
+import { IconGauge, IconKey, IconServer, IconSettings } from '@tabler/icons-react';
 import { getCurrentUser, logout, type AuthUser } from '../api/auth';
 import { useEffect, useState } from 'react';
 
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
     { to: '/', label: 'Dashboard', icon: IconGauge, end: true },
     { to: '/endpoints', label: 'API Endpoints', icon: IconServer, end: false },
     { to: '/keys', label: 'API Keys', icon: IconKey, end: false },
+    { to: '/settings', label: 'Settings', icon: IconSettings, end: false },
 ];
 
 export function AdminLayout ()

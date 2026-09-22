@@ -157,6 +157,12 @@ docker compose up -d --build
 
 The container uses `network_mode: host` and listens on port **6565** by default (override with `ASPNETCORE_URLS`), so it can reach local upstreams such as Ollama at `http://localhost:11434` directly. Open `http://localhost:6565/admin/` and use the credentials printed to the container logs on first run.
 
+### VS Code BYOK with Ollama
+
+LMMentor can emulate the Ollama discovery API expected by the native VS Code BYOK provider. Enable **Settings → Ollama compatibility** in the admin UI to expose `GET /api/version`, `GET /api/tags`, and `POST /api/show`; enabled public models are then discovered automatically by VS Code.
+
+In **Manage Language Models** in VS Code, add an **Ollama** provider and set its URL to `http://localhost:6565` (without `/v1`). The native provider has no API-key field. Consequently, compatibility mode makes the public `/v1` relay accept any API key, including no key. Keep it disabled for internet-accessible deployments.
+
 ---
 
 ## 📄 License

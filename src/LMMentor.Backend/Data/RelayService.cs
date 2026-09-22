@@ -5,7 +5,7 @@ using LMMentor.Backend.Data.Entities;
 namespace LMMentor.Backend.Data;
 
 /// <summary>Resultado da resolução de um modelo para o relay (inclui a chave validada).</summary>
-public sealed record ResolvedModel(ApiKeyEntity Key, ModelEntity Model, ApiEndpointEntity Endpoint);
+public sealed record ResolvedModel(ApiKeyEntity? Key, ModelEntity Model, ApiEndpointEntity Endpoint);
 
 /// <summary>Erro do relay com status HTTP associado (chave inválida, modelo inexistente, etc.).</summary>
 public sealed class RelayException(HttpStatusCode statusCode, string message) : Exception(message)
@@ -48,25 +48,29 @@ public sealed class RelayService
     private readonly EndpointService _endpoints;
     private readonly ApiKeyService _keys;
     private readonly UsageService _usage;
+    private readonly ApplicationSettingsService _settings;
 
     public RelayService(
         IHttpClientFactory httpClientFactory,
         EndpointService endpoints,
         ApiKeyService keys,
-        UsageService usage)
+        UsageService usage,
+        ApplicationSettingsService settings)
     {
         _httpClientFactory = httpClientFactory;
         _endpoints = endpoints;
         _keys = keys;
         _usage = usage;
+        _settings = settings;
     }
 
     /// <summary>Modelos habilitados e permitidos pela chave, no formato da lista do OpenAI.</summary>
-    public object ListModels(string apiKeyValue)
+    public object ListModels(string? apiKeyValue)
     {
-        var key = FindActiveKey(apiKeyValue);
+        var key = ResolveKey(apiKeyValue);
+        var bypassesAuthentication = _settings.OllamaCompatibilityEnabled;
         var models = _endpoints.GetAllModelDtos()
-            .Where(m => m.Enabled && IsModelAllowed(key, m.Id))
+            .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
             .Select(m => new
             {
                 id = EndpointService.EffectiveName(ToEntity(m)),
@@ -80,9 +84,10 @@ public sealed class RelayService
     }
 
     /// <summary>Resolve o modelo pelo nome exposto (ou id upstream) e valida a chave do cliente.</summary>
-    public ResolvedModel Resolve(string apiKeyValue, string model)
+    public ResolvedModel Resolve(string? apiKeyValue, string model)
     {
-        var key = FindActiveKey(apiKeyValue);
+        var key = ResolveKey(apiKeyValue);
+        var bypassesAuthentication = _settings.OllamaCompatibilityEnabled;
 
         // Aceita o nome exposto e o id original, para clientes configurados antes de um alias.
         var match = _endpoints.GetAllModels().FirstOrDefault(m =>
@@ -95,7 +100,7 @@ public sealed class RelayService
             throw new RelayException(HttpStatusCode.NotFound, $"Model '{model}' not found.");
         }
 
-        if (!IsModelAllowed(key, match.Id))
+        if (!bypassesAuthentication && !IsModelAllowed(key!, match.Id))
         {
             throw new RelayException(HttpStatusCode.Forbidden, "This API key is not allowed to use the requested model.");
         }
@@ -141,7 +146,7 @@ public sealed class RelayService
             {
                 // Erro do upstream: preserva a mensagem e não conta como uso bem-sucedido.
                 var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
-                _usage.Log(resolved.Model.Id, resolved.Key.Id, 0, 0, success: false);
+                _usage.Log(resolved.Model.Id, resolved.Key?.Id, 0, 0, success: false);
                 return new RelayResponse(response.StatusCode, contentType, new MemoryStream(errorBody));
             }
 
@@ -149,14 +154,14 @@ public sealed class RelayService
             {
                 // O response permanece aberto: o RelayingStream assume a posse e o descarta.
                 var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
-                var relayed = new RelayingStream(upstreamStream, resolved.Model.Id, resolved.Key.Id, _usage, response, ct);
+                var relayed = new RelayingStream(upstreamStream, resolved.Model.Id, resolved.Key?.Id, _usage, response, ct);
                 handedOffToStream = true;
                 return new RelayResponse(HttpStatusCode.OK, contentType, relayed);
             }
 
             // Não-streaming: lê a resposta completa para extrair o usage antes de devolver.
             var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
-            LogUsageFromJson(responseBody, resolved.Model.Id, resolved.Key.Id, _usage);
+            LogUsageFromJson(responseBody, resolved.Model.Id, resolved.Key?.Id, _usage);
             return new RelayResponse(HttpStatusCode.OK, contentType, new MemoryStream(responseBody));
         }
         finally
@@ -168,8 +173,18 @@ public sealed class RelayService
         }
     }
 
-    private ApiKeyEntity FindActiveKey(string apiKeyValue)
+    private ApiKeyEntity? ResolveKey(string? apiKeyValue)
     {
+        if (_settings.OllamaCompatibilityEnabled)
+        {
+            return FindOptionalActiveKey(apiKeyValue);
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKeyValue))
+        {
+            throw new RelayException(HttpStatusCode.Unauthorized, "Invalid API key.");
+        }
+
         var key = _keys.FindByKeyValue(apiKeyValue);
         if (key is null || key.RevokedAt is not null)
         {
@@ -177,6 +192,17 @@ public sealed class RelayService
         }
 
         return key;
+    }
+
+    private ApiKeyEntity? FindOptionalActiveKey(string? apiKeyValue)
+    {
+        if (string.IsNullOrWhiteSpace(apiKeyValue))
+        {
+            return null;
+        }
+
+        var key = _keys.FindByKeyValue(apiKeyValue);
+        return key is { RevokedAt: null } ? key : null;
     }
 
     private static bool IsModelAllowed(ApiKeyEntity key, string modelId) =>
@@ -234,7 +260,7 @@ public sealed class RelayService
     }
 
     /// <summary>Extrai usage da resposta JSON completa e registra no log.</summary>
-    private static void LogUsageFromJson(byte[] responseBody, string modelId, string apiKeyId, UsageService usage)
+    private static void LogUsageFromJson(byte[] responseBody, string modelId, string? apiKeyId, UsageService usage)
     {
         try
         {
@@ -277,7 +303,7 @@ public sealed class RelayService
 internal sealed class RelayingStream(
     Stream inner,
     string modelId,
-    string apiKeyId,
+    string? apiKeyId,
     UsageService usage,
     HttpResponseMessage upstreamResponse,
     CancellationToken clientCt) : Stream
