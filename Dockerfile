@@ -32,7 +32,7 @@ RUN groupadd --system lmmentor && useradd --system --gid lmmentor --home-dir /da
     && mkdir -p /data && chown lmmentor:lmmentor /data
 COPY --from=backend --chown=lmmentor:lmmentor /publish/ /app/
 USER lmmentor
-WORKDIR /data
+WORKDIR /app
 EXPOSE 8080
 VOLUME ["/data"]
 ENTRYPOINT ["dotnet", "/app/LMMentor.Backend.dll"]
