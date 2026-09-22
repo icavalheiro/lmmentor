@@ -25,7 +25,7 @@ const DEFAULT_URLS: Record<EndpointType, string> = {
     groq: 'https://api.groq.com/openai/v1',
     vllm: 'http://localhost:8000/v1',
     lmstudio: 'http://localhost:1234/v1',
-    unsloth: 'http://localhost:8000/v1',
+    unsloth: 'http://localhost:8888/v1',
     custom: 'https://provider.example.com/v1',
 };
 
