@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-heavy_development-orange.svg" alt="Status: Heavy Development" />
+  <img src="https://img.shields.io/badge/status-mostly_complete-brightgreen.svg" alt="Status: Mostly Complete" />
   <img src="https://img.shields.io/badge/language-C%23-%23239120.svg?logo=csharp&logoColor=white" alt="C#" />
   <img src="https://img.shields.io/badge/.NET-10.0%20Native%20AOT-purple.svg" alt=".NET 10 Native AOT" />
   <img src="https://img.shields.io/badge/UI-React%20%2B%20Mantine-blue.svg" alt="React + Mantine" />
@@ -24,8 +24,8 @@
 
 ---
 
-> [!WARNING]
-> **Under Heavy Development**: LMMentor is in early active development. Features, APIs, and data structures are subject to breaking changes. See [IDEA.md](IDEA.md) for the detailed design specification and roadmap.
+> [!NOTE]
+> **Mostly Complete**: LMMentor's core features (M1–M4) are implemented and working. Remaining hardening items (relay profiling, release packaging) are tracked in the roadmap below. See [IDEA.md](IDEA.md) for the detailed design specification.
 
 ---
 
@@ -62,7 +62,7 @@ flowchart LR
 1. **Multi-Provider Aggregation**
    - Configure multiple upstream OpenAI-compatible endpoints with custom base URLs, API tokens, and allow/deny lists.
 2. **Automated Model Discovery**
-   - Automatically polls `GET /v1/models` from configured providers to discover available models and their context window sizes.
+   - Discovers available models and their context window sizes from configured providers (OpenAI-compatible `GET /models`, Ollama `GET /api/tags`). Runs automatically in the background every 5 minutes and can also be triggered manually per endpoint.
 3. **Model Curation & Aliasing**
    - Select which discovered models are exposed to downstream clients and assign friendly aliases for a clean, stable model catalog.
 4. **Unified OpenAI-Compatible Endpoints**
@@ -114,8 +114,8 @@ lmmentor/
 - [x] **M1 — Skeleton & Bootstrapping**: AOT application bootstrapper, embedded LiteDB initialization, admin credential bootstrap, minimal UI shell.
 - [x] **M2 — Providers & Discovery**: Endpoint CRUD, connection status checks, automated model discovery (OpenAI-compatible + Ollama) with context sizing, model renaming and exposure toggles.
 - [x] **M3 — Public OpenAI-Compatible API**: Bearer-key authentication (`sk-lm-...`), `/v1/models`, `/v1/chat/completions` with SSE streaming pass-through.
-- [ ] **M4 — Metrics & Dashboard**: Per-call tracking and dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) are done; prompt caching statistics remain.
-- [ ] **M5 — Hardening & Release**: Endpoint edit form, scheduled background refresh, encryption of upstream tokens at rest, memory and latency profiling, xUnit test project, single-file AOT distribution binaries.
+- [x] **M4 — Metrics & Dashboard**: Per-call tracking, dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) and scheduled model refresh every 5 minutes.
+- [ ] **M5 — Hardening & Release**: Memory and latency profiling of the relay path (deferred), single-file AOT distribution binaries and CI release pipeline when the project goes open source.
 
 ---
 

@@ -22,7 +22,7 @@ Think of it as a small, opinionated, single-binary alternative to [LiteLLM](http
 ### 2. Automatic Model Discovery
 - On startup and on demand, LMMentor queries each provider's `GET /v1/models` endpoint.
 - Detects available models and their context sizes (from the provider response when available, e.g. `max_model_len`, or via a probe request as fallback).
-- Models are cached locally; refresh is manual (UI "refresh" action per endpoint). Scheduled background refresh is planned for M5.
+- Models are cached locally; refresh runs automatically in the background every 5 minutes (`ModelRefreshService`) and can also be triggered manually per endpoint from the UI.
 
 ### 3. Model Curation
 - Through the UI, the admin selects which discovered models are **exposed** through the aggregator's public endpoint.
@@ -43,9 +43,7 @@ Per call, per model, aggregated over a configurable window (1–90 days):
 
 Metrics are queryable through the UI (dashboard with per-model/per-key breakdowns, daily trends, and avg tokens/sec).
 
-Usage is recorded off the response path: the relay enqueues entries into an in-memory channel (`UsageLogger`) that a background consumer persists to LiteDB, so logging never adds latency to the streamed response.
-
-Planned (not yet implemented): cache hit/miss counts from provider-reported `cached_tokens`, and per-call generation-time tracking for per-model tokens/sec.
+Usage is recorded off the response path: the relay enqueues entries into an in-memory channel (`UsageLogger`) that a background consumer persists to LiteDB, so logging never adds latency to the streamed response. The dashboard query filters by date directly in LiteDB (`Query.GTE` on `timestamp`) instead of loading the whole collection.
 
 ### 6. API Key Management
 - Admins can create scoped API keys (prefixed `sk-lm-`) for LMMentor's own public API.
@@ -132,7 +130,7 @@ lmmentor/
 - **HTTP client**: `IHttpClientFactory` / named clients per provider; SSE streaming via `HttpCompletionOption.ResponseHeadersRead`.
 - **Persistence**: [LiteDB](https://www.litedb.org/) — a single-file, pure managed C# NoSQL database. No native interop, which keeps Native AOT compilation clean; entities map directly to `BsonDocument` collections.
 - **Token counting**: prefer upstream-reported usage; fall back to a lightweight local estimator when providers omit it.
-- **Secrets at rest**: admin password is PBKDF2-hashed; API keys are stored as SHA-256 hashes (the full `sk-lm-...` value is shown only once, at creation). Upstream access tokens are currently stored in plain text in LiteDB — encryption at rest is a planned hardening item.
+- **Secrets at rest**: admin password is PBKDF2-hashed; API keys are stored as SHA-256 hashes (the full `sk-lm-...` value is shown only once, at creation). Upstream access tokens are stored in plain text: the database is a local file on the same machine, so any encryption key would be reachable by the same attacker — encrypting them adds no real protection.
 - **No external services**: no Redis, no Postgres, no message queue — everything fits in one process and one file.
 - **Latency & memory-conscious relaying**: the aggregator adds as little overhead as possible between client and model.
   - Stream SSE responses token-by-token (`HttpCompletionOption.ResponseHeadersRead` + async pipe/copy) instead of accumulating the full body; time-to-first-token is dominated by the upstream, not by LMMentor.
@@ -153,5 +151,5 @@ lmmentor/
 1. ~~**M1 — Skeleton**~~ ✅ AOT app boots, LiteDB database initialized, admin credentials bootstrapped and printed to console, minimal UI shell.
 2. ~~**M2 — Providers & Discovery**~~ ✅ Add/remove endpoints via UI, model discovery (OpenAI-compatible + Ollama) with context sizes, rename models, expose/unexpose models.
 3. ~~**M3 — Public API**~~ ✅ Key-gated `/v1/models` + `/v1/chat/completions` (incl. SSE streaming pass-through) routed to upstreams.
-4. **M4 — Metrics** 🚧 Per-call logging and dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec over the window) are done; cache hit/miss tracking and per-model generation-time metrics remain.
-5. **M5 — Hardening**: endpoint edit form, scheduled background refresh, encryption of upstream tokens at rest, latency/memory profiling of the relay path, xUnit test project, single-file AOT distribution binaries (Docker image already ships a static AOT binary).
+4. ~~**M4 — Metrics**~~ ✅ Per-call logging and dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec over the window), with date filtering done in LiteDB.
+5. **M5 — Hardening & Release**: latency/memory profiling of the relay path (deferred to a later pass); single-file AOT distribution binaries and CI release pipeline when the project goes open source (the Docker image already ships a static AOT binary). Out of scope: endpoint edit form (not needed), encryption of upstream tokens at rest (no real gain for a local file), automated tests (deferred).

@@ -47,7 +47,9 @@ public sealed class UsageService
     public UsageSummaryDto GetSummary(int days)
     {
         var since = DateTime.UtcNow.AddDays(-days);
-        var entries = _collection.FindAll().Where(u => u.Timestamp >= since).ToList();
+
+        // Filtro por data no próprio LiteDB em vez de carregar a coleção inteira.
+        var entries = _collection.Find(Query.GTE(nameof(UsageLogEntry.Timestamp), new BsonValue(since))).ToList();
 
         var totalTokens = entries.Sum(e => e.TotalTokens);
         var totalRequests = (long)entries.Count;
