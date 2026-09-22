@@ -130,31 +130,42 @@ public sealed class RelayService
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", resolved.Endpoint.AccessToken);
         }
 
-        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/json";
-
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage? response = null;
+        var handedOffToStream = false;
+        try
         {
-            // Erro do upstream: preserva a mensagem e não conta como uso bem-sucedido.
-            var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
-            _usage.Log(resolved.Model.Id, resolved.Key.Id, 0, 0, success: false);
-            response.Dispose();
-            return new RelayResponse(response.StatusCode, contentType, new MemoryStream(errorBody));
-        }
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/json";
 
-        if (isStreaming)
+            if (!response.IsSuccessStatusCode)
+            {
+                // Erro do upstream: preserva a mensagem e não conta como uso bem-sucedido.
+                var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
+                _usage.Log(resolved.Model.Id, resolved.Key.Id, 0, 0, success: false);
+                return new RelayResponse(response.StatusCode, contentType, new MemoryStream(errorBody));
+            }
+
+            if (isStreaming)
+            {
+                // O response permanece aberto: o RelayingStream assume a posse e o descarta.
+                var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
+                var relayed = new RelayingStream(upstreamStream, resolved.Model.Id, resolved.Key.Id, _usage, response, ct);
+                handedOffToStream = true;
+                return new RelayResponse(HttpStatusCode.OK, contentType, relayed);
+            }
+
+            // Não-streaming: lê a resposta completa para extrair o usage antes de devolver.
+            var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
+            LogUsageFromJson(responseBody, resolved.Model.Id, resolved.Key.Id, _usage);
+            return new RelayResponse(HttpStatusCode.OK, contentType, new MemoryStream(responseBody));
+        }
+        finally
         {
-            // O response permanece aberto: seu descarte ocorre junto com o stream SSE.
-            var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
-            var relayed = new RelayingStream(upstreamStream, resolved.Model.Id, resolved.Key.Id, _usage, response);
-            return new RelayResponse(HttpStatusCode.OK, contentType, relayed);
+            if (!handedOffToStream)
+            {
+                response?.Dispose();
+            }
         }
-
-        // Não-streaming: lê a resposta completa para extrair o usage antes de devolver.
-        var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
-        response.Dispose();
-        LogUsageFromJson(responseBody, resolved.Model.Id, resolved.Key.Id, _usage);
-        return new RelayResponse(HttpStatusCode.OK, contentType, new MemoryStream(responseBody));
     }
 
     private ApiKeyEntity FindActiveKey(string apiKeyValue)
@@ -268,7 +279,8 @@ internal sealed class RelayingStream(
     string modelId,
     string apiKeyId,
     UsageService usage,
-    HttpResponseMessage upstreamResponse) : Stream
+    HttpResponseMessage upstreamResponse,
+    CancellationToken clientCt) : Stream
 {
     // Janela de linhas SSE mantidas em memória para localizar o chunk com "usage".
     // Os chunks não carregam contagem: os totais da requisição vêm num único objeto
@@ -278,6 +290,13 @@ internal sealed class RelayingStream(
     private readonly List<string> _dataChunks = [];
     private string _pendingLine = "";
     private bool _completed;
+    private bool _eofSeen;
+
+    // Cancelamento do cliente descarta a resposta upstream: fecha o socket (HTTP/1.1) ou
+    // envia RST_STREAM (HTTP/2), fazendo o provider interromper a geração imediatamente.
+    private readonly CancellationTokenRegistration _abortRegistration = clientCt.CanBeCanceled
+        ? clientCt.Register(static s => AbortUpstream((HttpResponseMessage)s!), upstreamResponse)
+        : default;
 
     public override bool CanRead => true;
     public override bool CanSeek => false;
@@ -287,12 +306,22 @@ internal sealed class RelayingStream(
 
     public override int Read(byte[] buffer, int offset, int count)
     {
+        if (clientCt.IsCancellationRequested)
+        {
+            // Cliente cancelou: a resposta upstream já foi descartada; encerra para o cliente.
+            return 0;
+        }
+
         try
         {
             var read = inner.Read(buffer, offset, count);
             if (read > 0)
             {
                 CaptureChunk(System.Text.Encoding.UTF8.GetString(buffer, 0, read));
+            }
+            else
+            {
+                _eofSeen = true;
             }
 
             return read;
@@ -301,6 +330,18 @@ internal sealed class RelayingStream(
         {
             // Upstream fechou a conexão no meio do stream: trata como fim para o cliente.
             return 0;
+        }
+    }
+
+    private static void AbortUpstream(HttpResponseMessage response)
+    {
+        try
+        {
+            response.Dispose();
+        }
+        catch
+        {
+            // Descarte pode falhar se a conexão já caiu: nada mais a fazer.
         }
     }
 
@@ -341,6 +382,21 @@ internal sealed class RelayingStream(
         }
 
         _completed = true;
+
+        // Stream interrompido pelo cancelamento do cliente antes do EOF: não conta como sucesso.
+        var cancelledBeforeEof = clientCt.IsCancellationRequested && !_eofSeen;
+        if (cancelledBeforeEof)
+        {
+            usage.Log(modelId, apiKeyId, 0, 0, success: false);
+            return;
+        }
+
+        if (_dataChunks.Count == 0)
+        {
+            // Stream vazio: nada a registrar.
+            return;
+        }
+
         try
         {
             // Percorre de trás para frente em busca do chunk com usage (chega antes do [DONE], no OpenAI).
@@ -364,10 +420,7 @@ internal sealed class RelayingStream(
             }
 
             // Stream com dados mas sem usage reportado: registra o sucesso sem tokens.
-            if (_dataChunks.Count > 0)
-            {
-                usage.Log(modelId, apiKeyId, 0, 0, success: true);
-            }
+            usage.Log(modelId, apiKeyId, 0, 0, success: true);
         }
         catch
         {
@@ -385,6 +438,7 @@ internal sealed class RelayingStream(
         if (disposing)
         {
             Complete();
+            _abortRegistration.Dispose();
             try
             {
                 inner.Dispose();
