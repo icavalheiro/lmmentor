@@ -1,9 +1,11 @@
+using LiteDB;
+
 namespace LMMentor.Backend.Data.Entities;
 
 /// <summary>Credencial de administrador (bootstrap no primeiro startup).</summary>
 public sealed class AdminCredential
 {
-    public int Id { get; set; }
+    public ObjectId Id { get; set; } = ObjectId.NewObjectId();
 
     public string Username { get; set; } = string.Empty;
 
