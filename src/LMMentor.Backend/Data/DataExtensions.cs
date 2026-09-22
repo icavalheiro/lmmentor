@@ -19,8 +19,8 @@ public static class DataExtensions
         builder.Services.AddSingleton<UsageService>();
         builder.Services.AddSingleton<RelayService>();
 
-        // Refresh agendado de modelos (a cada 5 minutos) em todos os endpoints.
-        builder.Services.AddHostedService<ModelRefreshService>();
+        // Sem refresh agendado: a descoberta de modelos (e a leitura do contexto) roda
+        // apenas quando o admin cria o endpoint ou dispara o refresh no painel.
         return builder;
     }
 

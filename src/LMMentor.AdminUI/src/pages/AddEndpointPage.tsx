@@ -13,6 +13,7 @@ const ENDPOINT_TYPES: { value: EndpointType; label: string; }[] = [
     { value: 'groq', label: 'Groq' },
     { value: 'vllm', label: 'vLLM' },
     { value: 'lmstudio', label: 'LM Studio' },
+    { value: 'llamacpp', label: 'llama.cpp (llama-server)' },
     { value: 'unsloth', label: 'Unsloth' },
     { value: 'custom', label: 'Custom (OpenAI-compatible)' },
 ];
@@ -25,6 +26,7 @@ const DEFAULT_URLS: Record<EndpointType, string> = {
     groq: 'https://api.groq.com/openai/v1',
     vllm: 'http://localhost:8000/v1',
     lmstudio: 'http://localhost:1234/v1',
+    llamacpp: 'http://localhost:8080/v1',
     unsloth: 'http://localhost:8888/v1',
     custom: 'https://provider.example.com/v1',
 };

@@ -128,6 +128,7 @@ public sealed class EndpointService
     /// <summary>
     /// Força a re-verificação do status e a descoberta de modelos: adiciona novos,
     /// remove os que sumiram do provedor e preserva as customizações dos existentes.
+    /// O contexto é reavaliado a cada refresh, pois o provedor pode alterá-lo.
     /// </summary>
     public async Task<ApiEndpointEntity?> RefreshAsync(string id, CancellationToken ct)
     {
@@ -156,7 +157,9 @@ public sealed class EndpointService
         {
             if (byUpstreamId.TryGetValue(found.UpstreamModelId, out var current))
             {
-                if (current.ContextSize is null && found.ContextSize is not null)
+                // Cada update pode mudar o contexto (ex.: modelo recarregado com outro
+                // tamanho), então o valor reportado sempre substitui o gravado.
+                if (found.ContextSize is not null && current.ContextSize != found.ContextSize)
                 {
                     current.ContextSize = found.ContextSize;
                     _models.Update(current);

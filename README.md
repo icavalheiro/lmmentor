@@ -62,7 +62,7 @@ flowchart LR
 1. **Multi-Provider Aggregation**
    - Configure multiple upstream OpenAI-compatible endpoints with custom base URLs, API tokens, and allow/deny lists.
 2. **Automated Model Discovery**
-   - Discovers available models and their context window sizes from configured providers (OpenAI-compatible `GET /models`, Ollama `GET /api/tags`). Runs automatically in the background every 5 minutes and can also be triggered manually per endpoint.
+   - Discovers available models and their context window sizes from configured providers: vLLM/Groq report it in `GET /models` (`max_model_len`/`context_window`), Ollama via `/api/show`, LM Studio via its native REST API (`/api/v1/models`), and llama-server / Unsloth Studio via `GET /props`. Runs on demand, per endpoint, from the admin UI — no background polling, so every refresh re-reads the current context size.
 3. **Model Curation & Aliasing**
    - Select which discovered models are exposed to downstream clients and assign friendly aliases for a clean, stable model catalog.
 4. **Unified OpenAI-Compatible Endpoints**
@@ -114,7 +114,7 @@ lmmentor/
 - [x] **M1 — Skeleton & Bootstrapping**: AOT application bootstrapper, embedded LiteDB initialization, admin credential bootstrap, minimal UI shell.
 - [x] **M2 — Providers & Discovery**: Endpoint CRUD, connection status checks, automated model discovery (OpenAI-compatible + Ollama) with context sizing, model renaming and exposure toggles.
 - [x] **M3 — Public OpenAI-Compatible API**: Bearer-key authentication (`sk-lm-...`), `/v1/models`, `/v1/chat/completions` with SSE streaming pass-through.
-- [x] **M4 — Metrics & Dashboard**: Per-call tracking, dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) and scheduled model refresh every 5 minutes.
+- [x] **M4 — Metrics & Dashboard**: Per-call tracking, dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) and on-demand model refresh from the admin UI.
 - [ ] **M5 — Hardening & Release**: Memory and latency profiling of the relay path (deferred), single-file AOT distribution binaries and CI release pipeline when the project goes open source.
 
 ---

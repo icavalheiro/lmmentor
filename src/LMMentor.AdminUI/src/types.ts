@@ -7,6 +7,7 @@ export type EndpointType =
     | 'groq'
     | 'vllm'
     | 'lmstudio'
+    | 'llamacpp'
     | 'unsloth'
     | 'custom';
 

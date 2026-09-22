@@ -7,7 +7,7 @@ public sealed class ApiEndpointEntity
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Tipo do provedor: openai, deepseek, ollama, groq, vllm, lmstudio, unsloth, custom.</summary>
+    /// <summary>Tipo do provedor: openai, deepseek, ollama, groq, vllm, lmstudio, llamacpp, unsloth, custom.</summary>
     public string Type { get; set; } = "custom";
 
     /// <summary>URL base do endpoint (ex.: https://api.openai.com/v1).</summary>
