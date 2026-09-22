@@ -1,0 +1,18 @@
+services:
+  lmmentor:
+    build: .
+    image: lmmentor
+    container_name: lmmentor
+    # Rede do host: o container acessa diretamente os serviços da máquina
+    # (ex.: Ollama em http://localhost:11434) sem tradução de portas.
+    network_mode: host
+    environment:
+      # Com network_mode: host não há mapeamento de portas; a aplicação
+      # escuta diretamente na porta do host.
+      ASPNETCORE_URLS: http://+:6565
+    volumes:
+      - lmmentor-data:/data
+    restart: unless-stopped
+
+volumes:
+  lmmentor-data:
