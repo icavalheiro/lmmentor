@@ -14,7 +14,10 @@ public static class DataExtensions
         builder.Services.AddSingleton<ModelDiscoveryService>();
         builder.Services.AddSingleton<EndpointService>();
         builder.Services.AddSingleton<ApiKeyService>();
+        // IAsyncDisposable: o host drena a fila de uso no shutdown.
+        builder.Services.AddSingleton<UsageLogger>();
         builder.Services.AddSingleton<UsageService>();
+        builder.Services.AddSingleton<RelayService>();
         return builder;
     }
 

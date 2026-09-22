@@ -87,4 +87,7 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapApiEndpoints();
 
+// API pública OpenAI-compatible (autenticada por chave Bearer, sem cookie).
+app.MapRelayEndpoints();
+
 app.Run();

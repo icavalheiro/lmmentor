@@ -18,39 +18,29 @@ public sealed record UsageSummaryDto(
     IReadOnlyList<UsageByEntityDto> ByKey);
 
 /// <summary>
-/// Registra o uso por requisição do relay e agrega para o dashboard. O log é gravado
-/// pelo relay OpenAI-compatible; até ele existir as consultas retornam dados zerados.
+/// Registra o uso por requisição do relay (via fila do UsageLogger) e agrega para o dashboard.
 /// </summary>
 public sealed class UsageService
 {
-    private const string CollectionName = "usage_log";
-
     private readonly LMMentorDb _db;
     private readonly ILiteCollection<UsageLogEntry> _collection;
+    private readonly UsageLogger _logger;
     private readonly EndpointService _endpoints;
     private readonly ApiKeyService _keys;
 
-    public UsageService(LMMentorDb db, EndpointService endpoints, ApiKeyService keys)
+    public UsageService(LMMentorDb db, UsageLogger logger, EndpointService endpoints, ApiKeyService keys)
     {
         _db = db;
-        _collection = db.Db.GetCollection<UsageLogEntry>(CollectionName);
+        _collection = db.Db.GetCollection<UsageLogEntry>("usage_log");
+        _logger = logger;
         _endpoints = endpoints;
         _keys = keys;
     }
 
-    /// <summary>Registra o uso de uma requisição atendida pelo relay.</summary>
+    /// <summary>Registra o uso de uma requisição atendida pelo relay (gravado fora do caminho da resposta).</summary>
     public void Log(string? modelId, string? apiKeyId, long promptTokens, long completionTokens, bool success)
     {
-        _collection.Insert(new UsageLogEntry
-        {
-            Timestamp = DateTime.UtcNow,
-            ModelId = modelId,
-            ApiKeyId = apiKeyId,
-            PromptTokens = promptTokens,
-            CompletionTokens = completionTokens,
-            TotalTokens = promptTokens + completionTokens,
-            Success = success,
-        });
+        _logger.Enqueue(modelId, apiKeyId, promptTokens, completionTokens, success);
     }
 
     /// <summary>Agrega o uso dos últimos <paramref name="days"/> dias para o dashboard.</summary>
