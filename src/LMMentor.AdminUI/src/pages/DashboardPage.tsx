@@ -1,5 +1,5 @@
 import { BarChart, LineChart } from '@mantine/charts';
-import { Card, Grid, Loader, Stack, Text, Title } from '@mantine/core';
+import { Card, Grid, Loader, Progress, Stack, Table, Text, Title } from '@mantine/core';
 import { useUsageSummary } from '../api/queries';
 
 function formatTokens ( value: number )
@@ -35,7 +35,6 @@ export function DashboardPage ()
 
     const lineData = summary.daily.map( ( d ) => ( { name: formatDay( d.date ), tokens: d.tokens } ) );
     const modelData = summary.byModel.map( ( m ) => ( { name: m.label, tokens: m.tokens } ) );
-    const keyData = summary.byKey.map( ( k ) => ( { name: k.label, tokens: k.tokens } ) );
 
     return (
         <Stack gap="lg">
@@ -85,8 +84,44 @@ export function DashboardPage ()
                 </Grid.Col>
                 <Grid.Col span={ { base: 12, md: 6 } }>
                     <Card withBorder padding="lg">
-                        <Text fw={ 600 } size="lg" mb="md">Most used keys</Text>
-                        <BarChart data={ keyData } dataKey="name" series={ [ { name: 'tokens', label: 'Tokens' } ] } h={ 240 } />
+                        <Text fw={ 600 } size="lg" mb="md">Usage by API key</Text>
+                        { summary.byKey.length === 0 ? (
+                            <Text c="dimmed" size="sm">No usage recorded for the last 7 days.</Text>
+                        ) : (
+                            <Table striped highlightOnHover withTableBorder>
+                                <Table.Thead>
+                                    <Table.Tr>
+                                        <Table.Th>Key</Table.Th>
+                                        <Table.Th ta="right">Tokens</Table.Th>
+                                        <Table.Th ta="right">Requests</Table.Th>
+                                        <Table.Th ta="right">Share</Table.Th>
+                                    </Table.Tr>
+                                </Table.Thead>
+                                <Table.Tbody>
+                                    { summary.byKey.map( ( k ) =>
+                                    {
+                                        const share = summary.totalTokens > 0 ? ( k.tokens / summary.totalTokens ) * 100 : 0;
+                                        return (
+                                            <Table.Tr key={ k.id }>
+                                                <Table.Td>
+                                                    <Text fw={ 500 } size="sm">{ k.label }</Text>
+                                                    <Progress value={ share } size="xs" radius={ 2 } mt={ 4 } />
+                                                </Table.Td>
+                                                <Table.Td ta="right">
+                                                    <Text size="sm">{ formatTokens( k.tokens ) }</Text>
+                                                </Table.Td>
+                                                <Table.Td ta="right">
+                                                    <Text size="sm">{ k.requests.toLocaleString( 'en-US' ) }</Text>
+                                                </Table.Td>
+                                                <Table.Td ta="right">
+                                                    <Text size="sm">{ share.toLocaleString( 'en-US', { maximumFractionDigits: 1 } ) }%</Text>
+                                                </Table.Td>
+                                            </Table.Tr>
+                                        );
+                                    } ) }
+                                </Table.Tbody>
+                            </Table>
+                        ) }
                     </Card>
                 </Grid.Col>
             </Grid>
