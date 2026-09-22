@@ -69,9 +69,9 @@ flowchart LR
    - `GET /v1/models`: Lists active exposed models with metadata.
    - `POST /v1/chat/completions`: Seamlessly routes requests and streams SSE responses.
 5. **Usage & Speed Metrics**
-   - Tracks total calls, input/output tokens, cache hits/misses, and wall-clock generation time to calculate average **tokens per second** per model.
-6. **API Token Management**
-   - Generate, scope (restricted to specific models), and revoke bearer tokens for client applications.
+   - Tracks calls and input/output tokens per request (usage is extracted from the upstream response, including streamed `usage` chunks) and aggregates them on the dashboard: daily trend, per-model and per-key breakdowns, and average **tokens per second** over the selected window.
+6. **API Key Management**
+   - Generate, scope (restricted to specific models), revoke, or delete `sk-lm-...` bearer keys for client applications. Keys are stored hashed; the full value is shown only once at creation.
 7. **Zero-Config First Run Bootstrap**
    - Automatically generates secure admin credentials on first startup and outputs them to the console.
 
@@ -83,34 +83,39 @@ flowchart LR
 lmmentor/
 ├── assets/                         # Identidade visual compartilhada (README + AdminUI)
 │   ├── logo.svg                    # Logo do projeto (cristal do cajado + os quatro elementos)
+│   ├── readme-logo.png             # Versão PNG do logo usada no README
 │   ├── favicon.svg                 # Ícone de aba do AdminUI (mesma arte, em 64×64)
 │   └── icons.svg                   # Sprite de ícones usado pelo AdminUI
 ├── src/
 │   ├── LMMentor.slnx               # Solution file
-│   ├── LMMentor.Backend/           # ASP.NET Core Native AOT backend
+│   ├── LMMentor.Backend/           # ASP.NET Core Native AOT backend (Minimal APIs)
 │   │   ├── Program.cs              # Application entrypoint & routing
+│   │   ├── Admin/                  # Auth, admin API (/api) e relay OpenAI-compatible (/v1)
+│   │   ├── Data/                   # LiteDB services + entities (endpoints, models, keys, usage)
 │   │   ├── Dev/                    # Vite dev server proxy middleware
 │   │   └── wwwroot/                # Built Admin UI static assets
 │   └── LMMentor.AdminUI/           # Admin UI (React + TypeScript + Vite + Mantine)
 │       ├── src/                    # Frontend source code (pages, components, api)
 │       └── vite.config.ts          # Vite config (build para wwwroot, publicDir em /assets)
+├── Dockerfile                      # Multi-stage build: Vite → AOT publish → static binary
+├── docker-compose.yml              # Host-network container with a /data volume for the DB
 ├── IDEA.md                         # Architecture & product specification
 └── README.md
 ```
 
 > [!NOTE]
-> Os arquivos de `/assets` são a única fonte de verdade da identidade visual: o README usa `assets/logo.svg`
-> diretamente e o AdminUI os consome via `publicDir` do Vite (não existem cópias dentro de `src/`).
+> Os arquivos de `/assets` são a única fonte de verdade da identidade visual: o README usa `assets/readme-logo.png`
+> diretamente e o AdminUI consome os SVGs via `publicDir` do Vite (não existem cópias dentro de `src/`).
 
 ---
 
 ## 🗺️ Roadmap & Milestones
 
-- [ ] **M1 — Skeleton & Bootstrapping**: AOT application bootstrapper, embedded LiteDB initialization, admin credential bootstrap, minimal UI shell.
-- [ ] **M2 — Providers & Discovery**: Provider CRUD, connection testing, automated model discovery with context sizing, model exposure toggles.
-- [ ] **M3 — Public OpenAI-Compatible API**: Bearer-token authentication, `/v1/models`, `/v1/chat/completions` with SSE streaming pass-through.
-- [ ] **M4 — Metrics & Dashboard**: Per-call tracking, daily aggregation, prompt caching statistics, tokens/sec charts.
-- [ ] **M5 — Hardening & Release**: Token scoping, scheduled background refresh, memory and latency profiling, single-file AOT distribution binaries.
+- [x] **M1 — Skeleton & Bootstrapping**: AOT application bootstrapper, embedded LiteDB initialization, admin credential bootstrap, minimal UI shell.
+- [x] **M2 — Providers & Discovery**: Endpoint CRUD, connection status checks, automated model discovery (OpenAI-compatible + Ollama) with context sizing, model renaming and exposure toggles.
+- [x] **M3 — Public OpenAI-Compatible API**: Bearer-key authentication (`sk-lm-...`), `/v1/models`, `/v1/chat/completions` with SSE streaming pass-through.
+- [ ] **M4 — Metrics & Dashboard**: Per-call tracking and dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) are done; prompt caching statistics remain.
+- [ ] **M5 — Hardening & Release**: Endpoint edit form, scheduled background refresh, encryption of upstream tokens at rest, memory and latency profiling, xUnit test project, single-file AOT distribution binaries.
 
 ---
 
@@ -138,6 +143,19 @@ When running in development (`ASPNETCORE_ENVIRONMENT=Development`), the backend 
    ```
 
 3. Open your browser at `http://localhost:5000/admin/` (or the configured port).
+
+> [!TIP]
+> The Vite dev server runs on a strict port (`5173`). Set `LMMENTOR_DEV_PROXY=false` to serve the static build from `wwwroot` even in Development.
+
+### Running with Docker
+
+The multi-stage `Dockerfile` builds the Admin UI, publishes the backend with Native AOT, and ships a single static binary (no .NET runtime in the final image). The database file lives in the `/data` volume (`LMMENTOR_DB_PATH=/data/lmmentor.db`).
+
+```bash
+docker compose up -d --build
+```
+
+The container uses `network_mode: host` and listens on port **6565** by default (override with `ASPNETCORE_URLS`), so it can reach local upstreams such as Ollama at `http://localhost:11434` directly. Open `http://localhost:6565/admin/` and use the credentials printed to the container logs on first run.
 
 ---
 
