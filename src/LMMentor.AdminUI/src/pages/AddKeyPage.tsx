@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ActionIcon, Alert, Button, Card, Code, Group, Modal, MultiSelect, Stack, Text, TextInput } from '@mantine/core';
-import { IconArrowLeft, IconCopy } from '@tabler/icons-react';
+import { IconArrowLeft, IconCheck, IconCopy } from '@tabler/icons-react';
 import { useAddKey, useModels } from '../api/queries';
 import type { CreatedKey } from '../api/keys';
+import { copyToClipboard } from '../utils/clipboard';
 
 export function AddKeyPage ()
 {
@@ -15,6 +16,29 @@ export function AddKeyPage ()
     const [ allowed, setAllowed ] = useState<string[]>( [] );
     const [ createdKey, setCreatedKey ] = useState<CreatedKey | null>( null );
     const [ error, setError ] = useState( '' );
+    const [ copied, setCopied ] = useState( false );
+
+    // Reseta o feedback de cópia sempre que uma nova chave é exibida.
+    useEffect( () =>
+    {
+        setCopied( false );
+    }, [ createdKey ] );
+
+    async function handleCopy ()
+    {
+        if ( !createdKey )
+        {
+            return;
+        }
+
+        const ok = await copyToClipboard( createdKey.key );
+        setCopied( ok );
+        if ( ok )
+        {
+            // Mantém o feedback visível por alguns segundos.
+            setTimeout( () => setCopied( false ), 2000 );
+        }
+    }
 
     function handleCreate ()
     {
@@ -80,19 +104,11 @@ export function AddKeyPage ()
                     </Text>
                     <Group justify="space-between" wrap="nowrap">
                         <Code style={ { flex: 1 } }>{ createdKey?.key }</Code>
-                        <ActionIcon
-                            variant="light"
-                            onClick={ () =>
-                            {
-                                if ( createdKey )
-                                {
-                                    navigator.clipboard.writeText( createdKey.key );
-                                }
-                            } }
-                        >
-                            <IconCopy size={ 16 } />
+                        <ActionIcon variant="light" color={ copied ? 'teal' : undefined } onClick={ handleCopy }>
+                            { copied ? <IconCheck size={ 16 } /> : <IconCopy size={ 16 } /> }
                         </ActionIcon>
                     </Group>
+                    { copied && <Text size="sm" c="teal">Copied to clipboard.</Text> }
                     <Group justify="flex-end">
                         <Button onClick={ () => navigate( '/keys' ) }>Done</Button>
                     </Group>
