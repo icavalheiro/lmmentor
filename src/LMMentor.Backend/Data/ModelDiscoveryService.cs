@@ -220,7 +220,8 @@ public sealed class ModelDiscoveryService
     /// <summary>
     /// Sonda o contexto do llama-server, usado diretamente (tipo llama.cpp) ou embutido no
     /// Unsloth Studio: GET /props traz o contexto efetivo do modelo residente em
-    /// default_generation_settings.n_ctx e o modelo em model_path.
+    /// default_generation_settings.n_ctx e o modelo em model_path (llama-server puro) ou
+    /// model_alias (Unsloth Studio).
     /// </summary>
     private static async Task<List<DiscoveredModel>> ApplyLlamaServerPropsAsync(
         HttpClient client, ApiEndpointEntity endpoint, List<DiscoveredModel> models, CancellationToken ct)
@@ -244,9 +245,9 @@ public sealed class ModelDiscoveryService
 
     /// <summary>
     /// Modelo ao qual o contexto do /props pertence: o que casa com o modelo residente
-    /// (model_path) ou, sem correspondência, o único modelo do endpoint — llama-server e
-    /// Unsloth Studio servem um modelo por vez. Sem alvo claro, o valor não é aplicado para
-    /// não atribuir contexto errado.
+    /// (model_path/model_alias) ou, sem correspondência, o único modelo do endpoint —
+    /// llama-server e Unsloth Studio servem um modelo por vez. Sem alvo claro, o valor não
+    /// é aplicado para não atribuir contexto errado.
     /// </summary>
     private static DiscoveredModel? ResolveLlamaServerTarget(
         List<DiscoveredModel> models, int? contextSize, string? residentModelId)
@@ -298,7 +299,9 @@ public sealed class ModelDiscoveryService
     private static (int? contextSize, string? residentModelId) ReadLlamaServerProps(JsonElement props)
     {
         var contextSize = ReadLlamaServerContextSize(props);
-        var residentModelId = ReadString(props, "model_path");
+
+        // O llama-server puro expõe model_path; o Unsloth Studio usa model_alias.
+        var residentModelId = ReadString(props, "model_alias") ?? ReadString(props, "model_path");
         return (contextSize, residentModelId);
     }
 
