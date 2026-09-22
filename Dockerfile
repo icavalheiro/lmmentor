@@ -26,9 +26,9 @@ ENV DOTNET_EnableDiagnostics=0
 RUN dotnet publish -c Release -r linux-x64
 
 # ---------------------------------------------------------------------------
-# Estágio 3 — Imagem final (binário AOT estático, sem runtime .NET)
+# Estágio 3 — Imagem final (binário AOT, sem runtime .NET)
 # ---------------------------------------------------------------------------
-FROM debian:bookworm-slim AS final
+FROM ubuntu:24.04 AS final
 ENV ASPNETCORE_URLS=http://+:8080 \
     LMMENTOR_DB_PATH=/data/lmmentor.db
 RUN groupadd --system lmmentor && useradd --system --gid lmmentor --home-dir /data lmmentor \
