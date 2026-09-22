@@ -117,7 +117,7 @@ lmmentor/
 
 | Collection | Purpose |
 |---|---|
-| `api_endpoints` | name, type (openai/ollama/groq/vllm/lmstudio/unsloth/custom), url, access_token, status (online/offline), last_checked_at, created_at |
+| `api_endpoints` | name, type (openai/deepseek/ollama/groq/vllm/lmstudio/unsloth/custom), url, access_token, status (online/offline), last_checked_at, created_at |
 | `models` | endpoint_id, upstream_model_id, display_name (empty = upstream name), context_size, enabled, created_at |
 | `api_keys` | SHA-256 hash of the key, name, allowed model ids (null = all), created_at, revoked_at |
 | `usage_log` | timestamp, model_id, api_key_id, prompt_tokens, completion_tokens, total_tokens, success — one row per relayed request; dashboard aggregates on read over a day window |

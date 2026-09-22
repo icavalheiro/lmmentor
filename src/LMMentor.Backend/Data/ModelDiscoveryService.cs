@@ -9,11 +9,37 @@ public sealed record DiscoveredModel(string UpstreamModelId, int? ContextSize);
 
 /// <summary>
 /// Descobre os modelos disponíveis em um endpoint chamando a API do provedor.
-/// OpenAI-compatible (openai/groq/vllm/lmstudio/unsloth/custom) usa GET {url}/models;
+/// OpenAI-compatible (openai/deepseek/groq/vllm/lmstudio/unsloth/custom) usa GET {url}/models;
 /// Ollama usa GET {url}/api/tags.
 /// </summary>
 public sealed class ModelDiscoveryService
 {
+    // Provedores que servem o catálogo oficial de modelos, e não modelos hospedados localmente.
+    private static readonly HashSet<string> RemoteProviderTypes =
+        new(StringComparer.OrdinalIgnoreCase) { "openai", "deepseek", "groq", "custom" };
+
+    // Campos usados pelos provedores OpenAI-compatible para informar o contexto do modelo.
+    private static readonly string[] ContextFieldNames =
+    [
+        "context_length",
+        "max_context",
+        "max_context_length",
+        "max_model_len",
+        "context_window",
+        "context_size",
+    ];
+
+    // Contexto dos modelos DeepSeek, usado quando o provedor não o informa na listagem
+    // (GET /models da DeepSeek devolve apenas id/created/owned_by).
+    // Fonte: https://api-docs.deepseek.com/quick_start/pricing
+    private static readonly Dictionary<string, int> KnownContextSizes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["deepseek-flash"] = 1_000_000,
+        ["deepseek-v4-flash"] = 1_000_000,
+        ["deepseek-v4-flash-vision-exp"] = 1_000_000,
+        ["deepseek-v4-pro"] = 1_000_000,
+    };
+
     private readonly IHttpClientFactory _httpClientFactory;
 
     public ModelDiscoveryService(IHttpClientFactory httpClientFactory)
@@ -83,11 +109,34 @@ public sealed class ModelDiscoveryService
                     continue;
                 }
 
-                models.Add(new DiscoveredModel(upstreamId, ReadContextSize(item)));
+                models.Add(new DiscoveredModel(upstreamId, ResolveContextSize(endpoint, upstreamId, item)));
             }
         }
 
         return (true, models);
+    }
+
+    /// <summary>
+    /// Contexto do modelo: prioriza o valor reportado pelo provedor e, quando ele não o
+    /// informa, completa com os valores conhecidos dos modelos oficiais da DeepSeek.
+    /// </summary>
+    private static int? ResolveContextSize(ApiEndpointEntity endpoint, string upstreamId, JsonElement item)
+    {
+        var reported = ReadContextSize(item);
+        if (reported is not null)
+        {
+            return reported;
+        }
+
+        // O fallback só vale em provedores que servem o catálogo oficial: em servidores
+        // locais (Ollama, vLLM, LM Studio) o mesmo nome pode ter contexto diferente.
+        var usesOfficialCatalog = RemoteProviderTypes.Contains(endpoint.Type);
+        if (usesOfficialCatalog && KnownContextSizes.TryGetValue(upstreamId, out var known))
+        {
+            return known;
+        }
+
+        return null;
     }
 
     private static async Task<(bool online, List<DiscoveredModel> models)> DiscoverOllamaAsync(
@@ -125,12 +174,12 @@ public sealed class ModelDiscoveryService
         return (true, models);
     }
 
-    /// <summary>Extrai o tamanho de contexto quando o provedor o informa (max_context/context_length).</summary>
+    /// <summary>Extrai o tamanho de contexto quando o provedor o informa em algum dos campos conhecidos.</summary>
     private static int? ReadContextSize(JsonElement item)
     {
-        foreach (var prop in new[] { "max_context", "context_length" })
+        foreach (var field in ContextFieldNames)
         {
-            if (item.TryGetProperty(prop, out var value) && value.ValueKind == JsonValueKind.Number
+            if (item.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.Number
                 && value.TryGetInt32(out var size) && size > 0)
             {
                 return size;

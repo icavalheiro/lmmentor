@@ -2,6 +2,7 @@
 
 export type EndpointType =
     | 'openai'
+    | 'deepseek'
     | 'ollama'
     | 'groq'
     | 'vllm'

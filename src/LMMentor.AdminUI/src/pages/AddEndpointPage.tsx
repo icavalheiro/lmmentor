@@ -8,6 +8,7 @@ import type { EndpointType } from '../types';
 
 const ENDPOINT_TYPES: { value: EndpointType; label: string; }[] = [
     { value: 'openai', label: 'OpenAI' },
+    { value: 'deepseek', label: 'DeepSeek' },
     { value: 'ollama', label: 'Ollama' },
     { value: 'groq', label: 'Groq' },
     { value: 'vllm', label: 'vLLM' },
@@ -15,6 +16,18 @@ const ENDPOINT_TYPES: { value: EndpointType; label: string; }[] = [
     { value: 'unsloth', label: 'Unsloth' },
     { value: 'custom', label: 'Custom (OpenAI-compatible)' },
 ];
+
+// URL base que o discovery e o relay usam como prefixo ({url}/models e {url}/chat/completions).
+const DEFAULT_URLS: Record<EndpointType, string> = {
+    openai: 'https://api.openai.com/v1',
+    deepseek: 'https://api.deepseek.com',
+    ollama: 'http://localhost:11434',
+    groq: 'https://api.groq.com/openai/v1',
+    vllm: 'http://localhost:8000/v1',
+    lmstudio: 'http://localhost:1234/v1',
+    unsloth: 'http://localhost:8000/v1',
+    custom: 'https://provider.example.com/v1',
+};
 
 export function AddEndpointPage ()
 {
@@ -79,7 +92,7 @@ export function AddEndpointPage ()
 
                 <TextInput
                     label="Base URL"
-                    placeholder="e.g. https://api.openai.com/v1"
+                    placeholder={ DEFAULT_URLS[ type ] }
                     value={ url }
                     onChange={ ( e ) => setUrl( e.currentTarget.value ) }
                     required
