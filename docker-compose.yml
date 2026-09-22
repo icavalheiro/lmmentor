@@ -14,6 +14,14 @@ services:
       - 6565:6565
     volumes:
       - lmmentor-data:/data
+    # Rotação de logs do container: o Docker não suporta retenção por tempo,
+    # então a rotação é por tamanho (3 x 10 MB = teto de 30 MB). Ajuste
+    # max-size/max-file ao volume diário esperado para aproximar 1 dia.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
 volumes:
