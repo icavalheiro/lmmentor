@@ -1,18 +1,13 @@
 import { Link } from 'react-router-dom';
 import { ActionIcon, Badge, Button, Card, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 import { IconChevronRight, IconPlus, IconTrash } from '@tabler/icons-react';
-import { useAdminData } from '../context/AdminDataContext';
+import { useEndpoints, useModels, useRemoveEndpoint } from '../api/queries';
 
 export function EndpointsPage ()
 {
-    const { endpoints, models, setEndpoints, setModels } = useAdminData();
-
-    function removeEndpoint ( id: string )
-    {
-        // Remove o endpoint e os modelos descobertos nele.
-        setEndpoints( ( prev ) => prev.filter( ( e ) => e.id !== id ) );
-        setModels( ( prev ) => prev.filter( ( m ) => m.endpointId !== id ) );
-    }
+    const { data: endpoints = [] } = useEndpoints();
+    const { data: models = [] } = useModels();
+    const removeEndpoint = useRemoveEndpoint();
 
     return (
         <Card withBorder padding="lg">
@@ -83,7 +78,7 @@ export function EndpointsPage ()
                                                 </Tooltip>
                                             </Link>
                                             <Tooltip label="Remove">
-                                                <ActionIcon variant="subtle" color="red" size="sm" onClick={ () => removeEndpoint( endpoint.id ) }>
+                                                <ActionIcon variant="subtle" color="red" size="sm" onClick={ () => removeEndpoint.mutate( endpoint.id ) }>
                                                     <IconTrash size={ 16 } />
                                                 </ActionIcon>
                                             </Tooltip>

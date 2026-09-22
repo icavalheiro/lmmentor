@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ActionIcon, Badge, Button, Card, Code, Group, Stack, Switch, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { IconArrowLeft, IconPencil, IconRefresh } from '@tabler/icons-react';
-import { useAdminData } from '../context/AdminDataContext';
+import { useEndpoints, useModels, useRefreshEndpoint, useRenameModel, useToggleModelEnabled } from '../api/queries';
 
 // Nome efetivamente exposto: alias customizado ou o nome upstream.
 function effectiveName ( displayName: string, upstreamModelId: string )
@@ -15,24 +15,21 @@ function formatDateTime ( iso: string )
     return new Date( iso ).toLocaleString( 'en-US', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' } );
 }
 
-// Candidatos fake que podem ser "descobertos" ao forçar a atualização.
-const DISCOVERABLE_MODELS: { upstreamModelId: string; contextSize: number | null; }[] = [
-    { upstreamModelId: 'qwen2.5-72b-instruct', contextSize: 32768 },
-    { upstreamModelId: 'deepseek-r1-distill-qwen-32b', contextSize: 65536 },
-    { upstreamModelId: 'mistral-small-3.1-24b', contextSize: 131072 },
-];
-
 export function EndpointDetailPage ()
 {
     const { id } = useParams<{ id: string; }>();
-    const { endpoints, models, setEndpoints, setModels } = useAdminData();
+    const { data: endpoints = [] } = useEndpoints();
+    const { data: models = [] } = useModels();
+    const refreshEndpoint = useRefreshEndpoint();
+    const renameModel = useRenameModel();
+    const toggleModelEnabled = useToggleModelEnabled();
 
     const endpoint = endpoints.find( ( e ) => e.id === id );
     const endpointModels = models.filter( ( m ) => m.endpointId === id );
 
     const [ editingId, setEditingId ] = useState<string | null>( null );
     const [ draftName, setDraftName ] = useState( '' );
-    const [ refreshing, setRefreshing ] = useState( false );
+    const [ draftError, setDraftError ] = useState( '' );
 
     if ( !endpoint )
     {
@@ -65,56 +62,41 @@ export function EndpointDetailPage ()
     {
         setEditingId( modelId );
         setDraftName( currentDisplayName );
+        setDraftError( '' );
     }
 
     function commitEdit ()
     {
-        if ( editingId === null || draftIsDuplicate )
+        if ( editingId === null || draftIsDuplicate || renameModel.isPending )
         {
             return;
         }
-        setModels( ( prev ) => prev.map( ( m ) => ( m.id === editingId ? { ...m, displayName: draftName.trim() } : m ) ) );
-        setEditingId( null );
+        renameModel.mutate(
+            { modelId: editingId, displayName: draftName.trim() },
+            {
+                onSuccess: () =>
+                {
+                    setEditingId( null );
+                    setDraftError( '' );
+                },
+                onError: ( err ) => setDraftError( err instanceof Error ? err.message : 'Failed to save the name.' ),
+            },
+        );
     }
 
     function toggleEnabled ( modelId: string, enabled: boolean )
     {
-        setModels( ( prev ) => prev.map( ( m ) => ( m.id === modelId ? { ...m, enabled } : m ) ) );
+        toggleModelEnabled.mutate( { modelId, enabled } );
     }
 
-    // Força a re-verificação do status e a descoberta de novos modelos (simulado).
+    // Força a re-verificação do status e a descoberta de novos modelos no provedor.
     function handleRefresh ()
     {
-        if ( !endpoint || refreshing )
+        if ( !endpoint )
         {
             return;
         }
-
-        setRefreshing( true );
-
-        window.setTimeout( () =>
-        {
-            const existing = new Set( models.filter( ( m ) => m.endpointId === endpoint.id ).map( ( m ) => m.upstreamModelId ) );
-            const candidate = DISCOVERABLE_MODELS.find( ( c ) => !existing.has( c.upstreamModelId ) );
-
-            // Atualiza o status e o horário da última verificação.
-            setEndpoints( ( prev ) => prev.map( ( e ) => ( e.id === endpoint.id ? { ...e, status: 'online', lastCheckedAt: new Date().toISOString() } : e ) ) );
-
-            // Adiciona um novo modelo descoberto, se houver candidato ainda não listado.
-            if ( candidate )
-            {
-                setModels( ( prev ) => [ ...prev, {
-                    id: `${ endpoint.id }-m${ Date.now() }`,
-                    endpointId: endpoint.id,
-                    upstreamModelId: candidate.upstreamModelId,
-                    displayName: '',
-                    contextSize: candidate.contextSize,
-                    enabled: true,
-                } ] );
-            }
-
-            setRefreshing( false );
-        }, 1200 );
+        refreshEndpoint.mutate( endpoint.id );
     }
 
     return (
@@ -141,7 +123,7 @@ export function EndpointDetailPage ()
                             variant="light"
                             size="xs"
                             leftSection={ <IconRefresh size={ 14 } /> }
-                            loading={ refreshing }
+                            loading={ refreshEndpoint.isPending }
                             onClick={ handleRefresh }
                         >
                             Refresh
@@ -192,8 +174,8 @@ export function EndpointDetailPage ()
                                                 value={ draftName }
                                                 placeholder={ model.upstreamModelId }
                                                 autoFocus
-                                                error={ draftIsDuplicate ? 'A model with this name already exists on another endpoint.' : undefined }
-                                                onChange={ ( e ) => setDraftName( e.currentTarget.value ) }
+                                                error={ draftIsDuplicate ? 'A model with this name already exists on another endpoint.' : draftError || undefined }
+                                                onChange={ ( e ) => { setDraftName( e.currentTarget.value ); setDraftError( '' ); } }
                                                 onKeyDown={ ( e ) =>
                                                 {
                                                     if ( e.key === 'Enter' )
@@ -203,12 +185,13 @@ export function EndpointDetailPage ()
                                                     if ( e.key === 'Escape' )
                                                     {
                                                         setEditingId( null );
+                                                        setDraftError( '' );
                                                     }
                                                 } }
                                             />
                                             <Group gap={ 4 }>
-                                                <Button size="xs" variant="light" onClick={ commitEdit } disabled={ draftIsDuplicate }>Save</Button>
-                                                <Button size="xs" variant="default" onClick={ () => setEditingId( null ) }>Cancel</Button>
+                                                <Button size="xs" variant="light" loading={ renameModel.isPending } onClick={ commitEdit } disabled={ draftIsDuplicate || renameModel.isPending }>Save</Button>
+                                                <Button size="xs" variant="default" onClick={ () => { setEditingId( null ); setDraftError( '' ); } }>Cancel</Button>
                                             </Group>
                                         </Stack>
                                     ) : (

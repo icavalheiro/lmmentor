@@ -58,3 +58,15 @@ export interface UsageByEntity
     tokens: number;
     requests: number;
 }
+
+// Resumo de uso retornado pelo backend para o dashboard.
+export interface UsageSummary
+{
+    totalTokens: number;
+    totalRequests: number;
+    avgTokensPerSecond: number;
+    avgTokensPerDay: number;
+    daily: DailyUsage[];
+    byModel: UsageByEntity[];
+    byKey: UsageByEntity[];
+}

@@ -1,6 +1,6 @@
 import { BarChart, LineChart } from '@mantine/charts';
-import { Card, Grid, Stack, Text, Title } from '@mantine/core';
-import { mockDailyUsage, mockUsageByKey, mockUsageByModel } from '../data/mockData';
+import { Card, Grid, Loader, Stack, Text, Title } from '@mantine/core';
+import { useUsageSummary } from '../api/queries';
 
 function formatTokens ( value: number )
 {
@@ -22,14 +22,20 @@ function formatDay ( isoDate: string )
 
 export function DashboardPage ()
 {
-    const totalTokens = mockDailyUsage.reduce( ( sum, d ) => sum + d.tokens, 0 );
-    const totalRequests = mockDailyUsage.reduce( ( sum, d ) => sum + d.requests, 0 );
-    // Média de tokens/s assumindo ~8h de uso ativo por dia na janela analisada.
-    const avgTokensPerSecond = Math.round( totalTokens / ( mockDailyUsage.length * 8 * 3600 ) );
+    const { data: summary, isPending } = useUsageSummary( 7 );
 
-    const lineData = mockDailyUsage.map( ( d ) => ( { name: formatDay( d.date ), tokens: d.tokens } ) );
-    const modelData = mockUsageByModel.map( ( m ) => ( { name: m.label, tokens: m.tokens } ) );
-    const keyData = mockUsageByKey.map( ( k ) => ( { name: k.label, tokens: k.tokens } ) );
+    if ( isPending || !summary )
+    {
+        return (
+            <Stack gap="lg" align="center" py="xl">
+                <Loader />
+            </Stack>
+        );
+    }
+
+    const lineData = summary.daily.map( ( d ) => ( { name: formatDay( d.date ), tokens: d.tokens } ) );
+    const modelData = summary.byModel.map( ( m ) => ( { name: m.label, tokens: m.tokens } ) );
+    const keyData = summary.byKey.map( ( k ) => ( { name: k.label, tokens: k.tokens } ) );
 
     return (
         <Stack gap="lg">
@@ -42,25 +48,25 @@ export function DashboardPage ()
                 <Grid.Col span={ { base: 12, sm: 6, lg: 3 } }>
                     <Card withBorder padding="md">
                         <Text c="dimmed" size="sm">Total tokens</Text>
-                        <Text fw={ 700 } size="xl">{ formatTokens( totalTokens ) }</Text>
+                        <Text fw={ 700 } size="xl">{ formatTokens( summary.totalTokens ) }</Text>
                     </Card>
                 </Grid.Col>
                 <Grid.Col span={ { base: 12, sm: 6, lg: 3 } }>
                     <Card withBorder padding="md">
                         <Text c="dimmed" size="sm">Requests</Text>
-                        <Text fw={ 700 } size="xl">{ totalRequests.toLocaleString( 'en-US' ) }</Text>
+                        <Text fw={ 700 } size="xl">{ summary.totalRequests.toLocaleString( 'en-US' ) }</Text>
                     </Card>
                 </Grid.Col>
                 <Grid.Col span={ { base: 12, sm: 6, lg: 3 } }>
                     <Card withBorder padding="md">
                         <Text c="dimmed" size="sm">Avg tokens/s</Text>
-                        <Text fw={ 700 } size="xl">{ avgTokensPerSecond.toLocaleString( 'en-US' ) }</Text>
+                        <Text fw={ 700 } size="xl">{ summary.avgTokensPerSecond.toLocaleString( 'en-US' ) }</Text>
                     </Card>
                 </Grid.Col>
                 <Grid.Col span={ { base: 12, sm: 6, lg: 3 } }>
                     <Card withBorder padding="md">
                         <Text c="dimmed" size="sm">Tokens/day (avg)</Text>
-                        <Text fw={ 700 } size="xl">{ formatTokens( Math.round( totalTokens / mockDailyUsage.length ) ) }</Text>
+                        <Text fw={ 700 } size="xl">{ formatTokens( summary.avgTokensPerDay ) }</Text>
                     </Card>
                 </Grid.Col>
             </Grid>

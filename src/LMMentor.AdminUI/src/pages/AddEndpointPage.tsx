@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Group, PasswordInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Button, Card, Group, PasswordInput, Select, Stack, Text, TextInput } from '@mantine/core';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { Link } from 'react-router-dom';
-import { useAdminData } from '../context/AdminDataContext';
-import type { EndpointType, Model } from '../types';
+import { useAddEndpoint } from '../api/queries';
+import type { EndpointType } from '../types';
 
 const ENDPOINT_TYPES: { value: EndpointType; label: string; }[] = [
     { value: 'openai', label: 'OpenAI' },
@@ -16,52 +16,32 @@ const ENDPOINT_TYPES: { value: EndpointType; label: string; }[] = [
     { value: 'custom', label: 'Custom (OpenAI-compatible)' },
 ];
 
-// Modelos fake "descobertos" ao adicionar um endpoint.
-const FAKE_DISCOVERED_MODELS: { upstreamModelId: string; contextSize: number | null; }[] = [
-    { upstreamModelId: 'llama-3.1-8b-instruct', contextSize: 131072 },
-    { upstreamModelId: 'mistral-7b-instruct', contextSize: 32768 },
-];
-
 export function AddEndpointPage ()
 {
     const navigate = useNavigate();
-    const { setEndpoints, setModels } = useAdminData();
+    const addEndpoint = useAddEndpoint();
 
     const [ name, setName ] = useState( '' );
     const [ type, setType ] = useState<EndpointType>( 'openai' );
     const [ url, setUrl ] = useState( '' );
     const [ token, setToken ] = useState( '' );
+    const [ error, setError ] = useState( '' );
 
     function handleAdd ()
     {
-        if ( !name.trim() || !url.trim() )
+        if ( !name.trim() || !url.trim() || addEndpoint.isPending )
         {
             return;
         }
 
-        const endpointId = `e${ Date.now() }`;
-        // Simula a descoberta automática de modelos no novo endpoint.
-        const discovered: Model[] = FAKE_DISCOVERED_MODELS.map( ( m, i ) => ( {
-            id: `${ endpointId }-m${ i }`,
-            endpointId,
-            upstreamModelId: m.upstreamModelId,
-            displayName: '',
-            contextSize: m.contextSize,
-            enabled: true,
-        } ) );
-
-        setEndpoints( ( prev ) => [ ...prev, {
-            id: endpointId,
-            name: name.trim(),
-            type,
-            url: url.trim(),
-            accessToken: token,
-            status: 'online',
-            lastCheckedAt: new Date().toISOString(),
-        } ] );
-        setModels( ( prev ) => [ ...prev, ...discovered ] );
-
-        navigate( `/endpoints/${ endpointId }` );
+        setError( '' );
+        addEndpoint.mutate(
+            { name: name.trim(), type, url: url.trim(), accessToken: token },
+            {
+                onSuccess: ( created ) => navigate( `/endpoints/${ created.id }` ),
+                onError: ( err ) => setError( err instanceof Error ? err.message : 'Failed to add the endpoint.' ),
+            },
+        );
     }
 
     return (
@@ -79,6 +59,8 @@ export function AddEndpointPage ()
                         Models available on this endpoint will be discovered automatically.
                     </Text>
                 </div>
+
+                { error && <Alert color="red" variant="light">{ error }</Alert> }
 
                 <TextInput
                     label="Name"
@@ -114,7 +96,7 @@ export function AddEndpointPage ()
                     <Link to="/endpoints">
                         <Button variant="default">Cancel</Button>
                     </Link>
-                    <Button onClick={ handleAdd }>Add and discover models</Button>
+                    <Button loading={ addEndpoint.isPending } onClick={ handleAdd }>Add and discover models</Button>
                 </Group>
             </Stack>
         </Card>

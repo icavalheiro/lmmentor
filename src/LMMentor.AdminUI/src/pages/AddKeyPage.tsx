@@ -1,44 +1,36 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ActionIcon, Button, Card, Code, Group, Modal, MultiSelect, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Alert, Button, Card, Code, Group, Modal, MultiSelect, Stack, Text, TextInput } from '@mantine/core';
 import { IconArrowLeft, IconCopy } from '@tabler/icons-react';
-import { useAdminData } from '../context/AdminDataContext';
-import type { ApiKey } from '../types';
-
-function generateMockKey ()
-{
-    const bytes = new Uint8Array( 24 );
-    crypto.getRandomValues( bytes );
-    return `sk-lm-${ Array.from( bytes, ( b ) => b.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
-}
+import { useAddKey, useModels } from '../api/queries';
+import type { CreatedKey } from '../api/keys';
 
 export function AddKeyPage ()
 {
     const navigate = useNavigate();
-    const { models, setKeys } = useAdminData();
+    const { data: models = [] } = useModels();
+    const addKey = useAddKey();
 
     const [ name, setName ] = useState( '' );
     const [ allowed, setAllowed ] = useState<string[]>( [] );
-    const [ createdKey, setCreatedKey ] = useState<ApiKey | null>( null );
+    const [ createdKey, setCreatedKey ] = useState<CreatedKey | null>( null );
+    const [ error, setError ] = useState( '' );
 
     function handleCreate ()
     {
-        if ( !name.trim() )
+        if ( !name.trim() || addKey.isPending )
         {
             return;
         }
 
-        const key: ApiKey = {
-            id: `k${ Date.now() }`,
-            name: name.trim(),
-            key: generateMockKey(),
-            allowedModelIds: allowed.length > 0 ? allowed : null,
-            createdAt: new Date().toISOString(),
-            revokedAt: null,
-        };
-
-        setKeys( ( prev ) => [ ...prev, key ] );
-        setCreatedKey( key );
+        setError( '' );
+        addKey.mutate(
+            { name: name.trim(), allowedModelIds: allowed.length > 0 ? allowed : undefined },
+            {
+                onSuccess: ( created ) => setCreatedKey( created ),
+                onError: ( err ) => setError( err instanceof Error ? err.message : 'Failed to create the key.' ),
+            },
+        );
     }
 
     return (
@@ -54,6 +46,8 @@ export function AddKeyPage ()
                     <Text fw={ 600 } size="lg">Add API key</Text>
                     <Text c="dimmed" size="sm">The key will be shown only once, at creation time.</Text>
                 </div>
+
+                { error && <Alert color="red" variant="light">{ error }</Alert> }
 
                 <TextInput
                     label="Name"
@@ -74,7 +68,7 @@ export function AddKeyPage ()
                     <Link to="/keys">
                         <Button variant="default">Cancel</Button>
                     </Link>
-                    <Button onClick={ handleCreate }>Create key</Button>
+                    <Button loading={ addKey.isPending } onClick={ handleCreate }>Create key</Button>
                 </Group>
             </Stack>
 

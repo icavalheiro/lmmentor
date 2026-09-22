@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ActionIcon, Badge, Button, Card, Code, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 import { IconBan, IconKey, IconPlus, IconTrash } from '@tabler/icons-react';
-import { useAdminData } from '../context/AdminDataContext';
+import { useDeleteKey, useKeys, useModels, useRevokeKey } from '../api/queries';
 
 function formatDate ( iso: string | null )
 {
@@ -14,17 +14,10 @@ function formatDate ( iso: string | null )
 
 export function KeysPage ()
 {
-    const { keys, models, setKeys } = useAdminData();
-
-    function revokeKey ( id: string )
-    {
-        setKeys( ( prev ) => prev.map( ( k ) => ( k.id === id ? { ...k, revokedAt: new Date().toISOString() } : k ) ) );
-    }
-
-    function deleteKey ( id: string )
-    {
-        setKeys( ( prev ) => prev.filter( ( k ) => k.id !== id ) );
-    }
+    const { data: keys = [] } = useKeys();
+    const { data: models = [] } = useModels();
+    const revokeKey = useRevokeKey();
+    const deleteKey = useDeleteKey();
 
     return (
         <Card withBorder padding="lg">
@@ -104,13 +97,13 @@ export function KeysPage ()
                                         <Group gap={ 4 } justify="flex-end">
                                             { !isRevoked && (
                                                 <Tooltip label="Revoke">
-                                                    <ActionIcon variant="subtle" color="orange" size="sm" onClick={ () => revokeKey( key.id ) }>
+                                                    <ActionIcon variant="subtle" color="orange" size="sm" onClick={ () => revokeKey.mutate( key.id ) }>
                                                         <IconBan size={ 16 } />
                                                     </ActionIcon>
                                                 </Tooltip>
                                             ) }
                                             <Tooltip label="Delete">
-                                                <ActionIcon variant="subtle" color="red" size="sm" onClick={ () => deleteKey( key.id ) }>
+                                                <ActionIcon variant="subtle" color="red" size="sm" onClick={ () => deleteKey.mutate( key.id ) }>
                                                     <IconTrash size={ 16 } />
                                                 </ActionIcon>
                                             </Tooltip>
