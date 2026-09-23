@@ -5,14 +5,14 @@
 <h1 align="center">LMMentor</h1>
 
 <p align="center">
-  <strong>Lightweight, self-hosted LLM aggregator written in C# / ASP.NET Core Native AOT</strong><br/>
+   <strong>Lightweight, self-hosted LLM aggregator written in C# / ASP.NET Core</strong><br/>
   <em>A single-binary, opinionated alternative to LiteLLM for routing, curating, and tracking multiple OpenAI-compatible LLMs.</em>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-mostly_complete-brightgreen.svg" alt="Status: Mostly Complete" />
   <img src="https://img.shields.io/badge/language-C%23-%23239120.svg?logo=csharp&logoColor=white" alt="C#" />
-  <img src="https://img.shields.io/badge/.NET-10.0%20Native%20AOT-purple.svg" alt=".NET 10 Native AOT" />
+   <img src="https://img.shields.io/badge/.NET-10.0-purple.svg" alt=".NET 10" />
   <img src="https://img.shields.io/badge/UI-React%20%2B%20Mantine-blue.svg" alt="React + Mantine" />
   <img src="https://img.shields.io/badge/database-LiteDB-green.svg" alt="LiteDB" />
   <img src="https://img.shields.io/badge/license-AGPL%20v3-blue.svg" alt="License: AGPL v3" />
@@ -25,7 +25,7 @@
 ---
 
 > [!NOTE]
-> **Mostly Complete**: LMMentor's core features (M1–M4) are implemented and working. Remaining hardening items (relay profiling, release packaging) are tracked in the roadmap below. See [IDEA.md](IDEA.md) for the detailed design specification.
+> **Mostly Complete**: LMMentor's core features (M1–M4) are implemented and working. Remaining hardening work is tracked in the roadmap below. See [IDEA.md](IDEA.md) for the detailed design specification.
 
 ---
 
@@ -35,7 +35,7 @@
 
 ### Why LMMentor?
 
-- ⚡ **Single Binary, Zero External Dependencies**: Compiled with .NET Native AOT into a single standalone executable. No Python runtime, virtual environments, Docker daemons, or heavy dependencies required.
+- ⚡ **Simple Self-Hosted Deployment**: Runs as one ASP.NET Core service with no external database, queue, or cache required.
 - 🗄️ **Embedded LiteDB Storage**: All providers, curated models, tokens, and daily metrics live in a single local database file (`.db`). Trivially deployable and easily backed up.
 - 🔄 **OpenAI-Compatible In, OpenAI-Compatible Out**: Works out-of-the-box with any standard OpenAI client or SDK (`/v1/chat/completions`, `/v1/models`).
 - 🚀 **Low Latency & Memory-Efficient Streaming**: Passes tokens through via Server-Sent Events (SSE) with minimal buffering, low memory allocations, and connection pooling.
@@ -64,7 +64,7 @@ flowchart LR
 2. **Automated Model Discovery**
    - Discovers available models and their context window sizes from configured providers: vLLM/Groq report it in `GET /models` (`max_model_len`/`context_window`), Ollama via `/api/show`, LM Studio via its native REST API (`/api/v1/models`), and llama-server / Unsloth Studio via `GET /props`. Runs on demand, per endpoint, from the admin UI — no background polling, so every refresh re-reads the current context size.
 3. **Model Curation & Aliasing**
-   - Select which discovered models are exposed to downstream clients and assign friendly aliases for a clean, stable model catalog.
+   - Discovered models start **disabled**, so nothing is exposed to downstream clients without an explicit decision: enable only the models you want to use and assign friendly aliases for a clean, stable model catalog.
 4. **Unified OpenAI-Compatible Endpoints**
    - `GET /v1/models`: Lists active exposed models with metadata.
    - `POST /v1/chat/completions`: Seamlessly routes requests and streams SSE responses.
@@ -115,7 +115,7 @@ lmmentor/
 - [x] **M2 — Providers & Discovery**: Endpoint CRUD, connection status checks, automated model discovery (OpenAI-compatible + Ollama) with context sizing, model renaming and exposure toggles.
 - [x] **M3 — Public OpenAI-Compatible API**: Bearer-key authentication (`sk-lm-...`), `/v1/models`, `/v1/chat/completions` with SSE streaming pass-through.
 - [x] **M4 — Metrics & Dashboard**: Per-call tracking, dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) and on-demand model refresh from the admin UI.
-- [ ] **M5 — Hardening & Release**: Memory and latency profiling of the relay path (deferred), single-file AOT distribution binaries and CI release pipeline when the project goes open source.
+- [ ] **M5 — Ongoing Hardening**: Memory and latency profiling of the relay path, automated tests, release artifacts, and CI automation.
 
 ---
 
@@ -123,7 +123,7 @@ lmmentor/
 
 ### Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/) (with Native AOT prerequisites installed for your OS)
+- [.NET 10 SDK](https://dotnet.microsoft.com/)
 - [Node.js](https://nodejs.org/) (v20+) & `npm`
 
 ### Running in Development Mode
@@ -149,13 +149,16 @@ When running in development (`ASPNETCORE_ENVIRONMENT=Development`), the backend 
 
 ### Running with Docker
 
-The multi-stage `Dockerfile` builds the Admin UI, publishes the backend with Native AOT, and ships a single static binary (no .NET runtime in the final image). The database file lives in the `/data` volume (`LMMENTOR_DB_PATH=/data/lmmentor.db`).
+The multi-stage `Dockerfile` builds the Admin UI and publishes the backend into an ASP.NET Core runtime image. The database file lives in the `/data` volume (`LMMENTOR_DB_PATH=/data/lmmentor.db`).
 
 ```bash
 docker compose up -d --build
 ```
 
-The container uses `network_mode: host` and listens on port **6565** by default (override with `ASPNETCORE_URLS`), so it can reach local upstreams such as Ollama at `http://localhost:11434` directly. Open `http://localhost:6565/admin/` and use the credentials printed to the container logs on first run.
+The compose file publishes port **6565** by default (override with `ASPNETCORE_URLS`). When an upstream runs on the Docker host, configure it as `http://host.docker.internal:<port>` from the admin UI. Open `http://localhost:6565/admin/` and use the credentials printed to the container logs on first run.
+
+> [!IMPORTANT]
+> The database volume and the admin UI provide administrative access to configured providers. Restrict access to both, use HTTPS through a reverse proxy for non-local deployments, and keep Ollama compatibility disabled unless it is required.
 
 ### VS Code BYOK with Ollama
 

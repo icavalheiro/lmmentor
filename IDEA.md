@@ -130,7 +130,7 @@ lmmentor/
 - **HTTP client**: `IHttpClientFactory` / named clients per provider; SSE streaming via `HttpCompletionOption.ResponseHeadersRead`.
 - **Persistence**: [LiteDB](https://www.litedb.org/) — a single-file, pure managed C# NoSQL database. No native interop, which keeps Native AOT compilation clean; entities map directly to `BsonDocument` collections.
 - **Token counting**: prefer upstream-reported usage; fall back to a lightweight local estimator when providers omit it.
-- **Secrets at rest**: admin password is PBKDF2-hashed; API keys are stored as SHA-256 hashes (the full `sk-lm-...` value is shown only once, at creation). Upstream access tokens are stored in plain text: the database is a local file on the same machine, so any encryption key would be reachable by the same attacker — encrypting them adds no real protection.
+- **Secrets handling**: admin passwords use PBKDF2 hashes and public API keys use SHA-256 hashes. A newly generated `sk-lm-...` value is shown only once, at creation.
 - **No external services**: no Redis, no Postgres, no message queue — everything fits in one process and one file.
 - **Latency & memory-conscious relaying**: the aggregator adds as little overhead as possible between client and model.
   - Stream SSE responses token-by-token (`HttpCompletionOption.ResponseHeadersRead` + async pipe/copy) instead of accumulating the full body; time-to-first-token is dominated by the upstream, not by LMMentor.
@@ -152,4 +152,4 @@ lmmentor/
 2. ~~**M2 — Providers & Discovery**~~ ✅ Add/remove endpoints via UI, model discovery (OpenAI-compatible + Ollama) with context sizes, rename models, expose/unexpose models.
 3. ~~**M3 — Public API**~~ ✅ Key-gated `/v1/models` + `/v1/chat/completions` (incl. SSE streaming pass-through) routed to upstreams.
 4. ~~**M4 — Metrics**~~ ✅ Per-call logging and dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec over the window), with date filtering done in LiteDB.
-5. **M5 — Hardening & Release**: latency/memory profiling of the relay path (deferred to a later pass); single-file AOT distribution binaries and CI release pipeline when the project goes open source (the Docker image already ships a static AOT binary). Out of scope: endpoint edit form (not needed), encryption of upstream tokens at rest (no real gain for a local file), automated tests (deferred).
+5. **M5 — Ongoing Hardening**: latency/memory profiling of the relay path, automated tests, release artifacts, and CI automation. Endpoint editing remains out of scope.
