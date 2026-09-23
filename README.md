@@ -103,10 +103,6 @@ lmmentor/
 └── README.md
 ```
 
-> [!NOTE]
-> Os arquivos de `/assets` são a única fonte de verdade da identidade visual: o README usa `assets/readme-logo.png`
-> diretamente e o AdminUI consome os SVGs via `publicDir` do Vite (não existem cópias dentro de `src/`).
-
 ---
 
 ## 🗺️ Roadmap & Milestones
