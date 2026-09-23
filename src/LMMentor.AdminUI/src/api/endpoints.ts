@@ -1,5 +1,5 @@
 import { request } from './http';
-import type { ApiEndpoint, Model } from '../types';
+import type { ApiEndpoint, AvailabilityWindow, Model } from '../types';
 
 export function getEndpoints (): Promise<ApiEndpoint[]>
 {
@@ -39,4 +39,9 @@ export function renameModel ( modelId: string, displayName: string ): Promise<Mo
 export function setModelEnabled ( modelId: string, enabled: boolean ): Promise<Model>
 {
     return request( `/api/models/${ modelId }/enabled`, { method: 'PATCH', body: JSON.stringify( { enabled } ) } );
+}
+
+export function setModelSchedule ( modelId: string, blockedWindows: AvailabilityWindow[] ): Promise<Model>
+{
+    return request( `/api/models/${ modelId }/schedule`, { method: 'PATCH', body: JSON.stringify( { blockedWindows } ) } );
 }

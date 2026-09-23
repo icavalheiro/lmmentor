@@ -3,6 +3,7 @@ import * as endpointsApi from './endpoints';
 import * as keysApi from './keys';
 import * as settingsApi from './settings';
 import { getUsageSummary } from './usage';
+import type { AvailabilityWindow } from '../types';
 
 // Chaves de query centralizadas para invalidação consistente.
 export const queryKeys = {
@@ -92,6 +93,16 @@ export function useToggleModelEnabled ()
     return useMutation( {
         mutationFn: ( { modelId, enabled }: { modelId: string; enabled: boolean; } ) =>
             endpointsApi.setModelEnabled( modelId, enabled ),
+        onSuccess: () => queryClient.invalidateQueries( { queryKey: queryKeys.models } ),
+    } );
+}
+
+export function useSetModelSchedule ()
+{
+    const queryClient = useQueryClient();
+    return useMutation( {
+        mutationFn: ( { modelId, blockedWindows }: { modelId: string; blockedWindows: AvailabilityWindow[]; } ) =>
+            endpointsApi.setModelSchedule( modelId, blockedWindows ),
         onSuccess: () => queryClient.invalidateQueries( { queryKey: queryKeys.models } ),
     } );
 }

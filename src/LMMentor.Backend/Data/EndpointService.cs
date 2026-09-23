@@ -11,7 +11,8 @@ public sealed record ModelDto(
     string UpstreamModelId,
     string DisplayName,
     int? ContextSize,
-    bool Enabled);
+    bool Enabled,
+    IReadOnlyList<ModelAvailabilityWindow> BlockedWindows);
 
 /// <summary>Erro de validação com status HTTP associado (ex.: nome duplicado).</summary>
 public sealed class ValidationException(string message) : Exception(message)
@@ -226,10 +227,27 @@ public sealed class EndpointService
         return ToDto(model);
     }
 
+    /// <summary>
+    /// Substitui as janelas recorrentes de indisponibilidade do modelo (ex.: rush hour de um
+    /// provedor). Lista vazia remove todas as restrições.
+    /// </summary>
+    public ModelDto? SetModelBlockedWindows(string modelId, List<ModelAvailabilityWindow> windows)
+    {
+        var model = _models.FindById(modelId);
+        if (model is null)
+        {
+            return null;
+        }
+
+        model.BlockedWindows = windows;
+        _models.Update(model);
+        return ToDto(model);
+    }
+
     /// <summary>Nome efetivamente exposto: alias customizado ou o id upstream.</summary>
     public static string EffectiveName(ModelEntity model) =>
         string.IsNullOrWhiteSpace(model.DisplayName) ? model.UpstreamModelId : model.DisplayName!;
 
     private static ModelDto ToDto(ModelEntity m) =>
-        new(m.Id, m.EndpointId, m.UpstreamModelId, NullToEmpty(m.DisplayName), m.ContextSize, m.Enabled);
+        new(m.Id, m.EndpointId, m.UpstreamModelId, NullToEmpty(m.DisplayName), m.ContextSize, m.Enabled, m.BlockedWindows ?? new());
 }

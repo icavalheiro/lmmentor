@@ -1,4 +1,5 @@
 using LMMentor.Backend.Data;
+using LMMentor.Backend.Data.Entities;
 
 namespace LMMentor.Backend.Admin;
 
@@ -7,6 +8,11 @@ public sealed record CreateEndpointRequest(string Name, string Type, string Url,
 public sealed record RenameModelRequest(string DisplayName);
 
 public sealed record SetModelEnabledRequest(bool Enabled);
+
+/// <summary>Payload de uma janela recorrente de indisponibilidade (validado antes de persistir).</summary>
+public sealed record AvailabilityWindowRequest(List<DayOfWeek> DaysOfWeek, string StartTime, string EndTime);
+
+public sealed record SetModelScheduleRequest(List<AvailabilityWindowRequest> BlockedWindows);
 
 public sealed record CreateKeyRequest(string Name, List<string>? AllowedModelIds);
 
@@ -69,6 +75,30 @@ public static class ApiEndpoints
 
         group.MapPatch("/models/{id}/enabled", (string id, SetModelEnabledRequest request, EndpointService endpoints) =>
             endpoints.SetModelEnabled(id, request.Enabled) is { } model ? Results.Ok(model) : Results.NotFound());
+
+        // Janelas recorrentes de indisponibilidade (ex.: rush hour de um provedor).
+        group.MapPatch("/models/{id}/schedule", (string id, SetModelScheduleRequest request, EndpointService endpoints) =>
+        {
+            var windows = new List<ModelAvailabilityWindow>();
+            foreach (var window in request.BlockedWindows ?? new())
+            {
+                var hasDays = window.DaysOfWeek is { Count: > 0 };
+                var hasValidTimes = TimeOnly.TryParse(window.StartTime, out _) && TimeOnly.TryParse(window.EndTime, out _);
+                if (!hasDays || !hasValidTimes)
+                {
+                    return Results.BadRequest(new { error = "Each window needs at least one day and valid start/end times (HH:mm)." });
+                }
+
+                windows.Add(new ModelAvailabilityWindow
+                {
+                    DaysOfWeek = window.DaysOfWeek.Distinct().ToList(),
+                    StartTime = window.StartTime,
+                    EndTime = window.EndTime,
+                });
+            }
+
+            return endpoints.SetModelBlockedWindows(id, windows) is { } model ? Results.Ok(model) : Results.NotFound();
+        });
 
         // Chaves de API.
         group.MapGet("/keys", (ApiKeyService keys) => Results.Ok(keys.GetAll()));

@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ActionIcon, Badge, Button, Card, Code, Group, Stack, Switch, Table, Text, TextInput, Tooltip } from '@mantine/core';
-import { IconArrowLeft, IconPencil, IconRefresh } from '@tabler/icons-react';
-import { useEndpoints, useModels, useRefreshEndpoint, useRenameModel, useToggleModelEnabled } from '../api/queries';
+import { ActionIcon, Badge, Button, Card, Chip, Code, Group, Modal, Stack, Switch, Table, Text, TextInput, Tooltip } from '@mantine/core';
+import { IconArrowLeft, IconClock, IconPencil, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react';
+import { useEndpoints, useModels, useRefreshEndpoint, useRenameModel, useSetModelSchedule, useToggleModelEnabled } from '../api/queries';
+import type { AvailabilityWindow } from '../types';
+
+const DAY_LABELS = [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat' ];
 
 // Nome efetivamente exposto: alias customizado ou o nome upstream.
 function effectiveName ( displayName: string, upstreamModelId: string )
@@ -15,6 +18,15 @@ function formatDateTime ( iso: string )
     return new Date( iso ).toLocaleString( 'en-US', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' } );
 }
 
+function formatSchedule ( windows: AvailabilityWindow[] )
+{
+    if ( windows.length === 0 )
+    {
+        return 'Always available';
+    }
+    return `${ windows.length } restriction${ windows.length > 1 ? 's' : '' }`;
+}
+
 export function EndpointDetailPage ()
 {
     const { id } = useParams<{ id: string; }>();
@@ -23,6 +35,7 @@ export function EndpointDetailPage ()
     const refreshEndpoint = useRefreshEndpoint();
     const renameModel = useRenameModel();
     const toggleModelEnabled = useToggleModelEnabled();
+    const setModelSchedule = useSetModelSchedule();
 
     const endpoint = endpoints.find( ( e ) => e.id === id );
     const endpointModels = models.filter( ( m ) => m.endpointId === id );
@@ -30,6 +43,9 @@ export function EndpointDetailPage ()
     const [ editingId, setEditingId ] = useState<string | null>( null );
     const [ draftName, setDraftName ] = useState( '' );
     const [ draftError, setDraftError ] = useState( '' );
+
+    const [ scheduleModelId, setScheduleModelId ] = useState<string | null>( null );
+    const [ draftWindows, setDraftWindows ] = useState<AvailabilityWindow[]>( [] );
 
     if ( !endpoint )
     {
@@ -87,6 +103,53 @@ export function EndpointDetailPage ()
     function toggleEnabled ( modelId: string, enabled: boolean )
     {
         toggleModelEnabled.mutate( { modelId, enabled } );
+    }
+
+    // Abre o editor com uma cópia das janelas atuais do modelo (rascunho editável).
+    function openScheduleEditor ( modelId: string, blockedWindows: AvailabilityWindow[] )
+    {
+        setScheduleModelId( modelId );
+        setDraftWindows( blockedWindows.map( ( w ) => ( { ...w, daysOfWeek: [ ...w.daysOfWeek ] } ) ) );
+    }
+
+    function closeScheduleEditor ()
+    {
+        setScheduleModelId( null );
+    }
+
+    function addWindow ()
+    {
+        setDraftWindows( [ ...draftWindows, { daysOfWeek: [], startTime: '00:00', endTime: '00:00' } ] );
+    }
+
+    function removeWindow ( index: number )
+    {
+        setDraftWindows( draftWindows.filter( ( _, i ) => i !== index ) );
+    }
+
+    function updateWindow ( index: number, patch: Partial<AvailabilityWindow> )
+    {
+        setDraftWindows( draftWindows.map( ( w, i ) => ( i === index ? { ...w, ...patch } : w ) ) );
+    }
+
+    function toggleWindowDays ( index: number, values: string[] )
+    {
+        updateWindow( index, { daysOfWeek: values.map( Number ) } );
+    }
+
+    // Toda janela precisa de ao menos um dia selecionado para ser salva.
+    const scheduleIsValid = draftWindows.every( ( w ) => w.daysOfWeek.length > 0 );
+
+    function saveSchedule ()
+    {
+        if ( scheduleModelId === null || !scheduleIsValid || setModelSchedule.isPending )
+        {
+            return;
+        }
+        setModelSchedule.mutate(
+            { modelId: scheduleModelId, blockedWindows: draftWindows },
+            { onSuccess: closeScheduleEditor },
+        );
     }
 
     // Força a re-verificação do status e a descoberta de novos modelos no provedor.
@@ -151,12 +214,13 @@ export function EndpointDetailPage ()
                             <Table.Th>Exposed name</Table.Th>
                             <Table.Th ta="right">Context</Table.Th>
                             <Table.Th ta="center">Enabled</Table.Th>
+                            <Table.Th ta="center">Schedule</Table.Th>
                         </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
                         { endpointModels.length === 0 && (
                             <Table.Tr>
-                                <Table.Td colSpan={ 4 }>
+                                <Table.Td colSpan={ 5 }>
                                     <Text c="dimmed" ta="center">No models discovered on this endpoint.</Text>
                                 </Table.Td>
                             </Table.Tr>
@@ -218,11 +282,91 @@ export function EndpointDetailPage ()
                                         onChange={ ( e ) => toggleEnabled( model.id, e.currentTarget.checked ) }
                                     />
                                 </Table.Td>
+                                <Table.Td ta="center">
+                                    <Button
+                                        size="xs"
+                                        variant="light"
+                                        color={ model.blockedWindows.length > 0 ? 'orange' : 'gray' }
+                                        leftSection={ <IconClock size={ 14 } /> }
+                                        onClick={ () => openScheduleEditor( model.id, model.blockedWindows ) }
+                                    >
+                                        { formatSchedule( model.blockedWindows ) }
+                                    </Button>
+                                </Table.Td>
                             </Table.Tr>
                         ) ) }
                     </Table.Tbody>
                 </Table>
             </Stack>
+
+            {/* Editor de janelas recorrentes de indisponibilidade (ex.: rush hour de um provedor) */ }
+            <Modal opened={ scheduleModelId !== null } onClose={ closeScheduleEditor } title="Availability schedule" centered size="lg">
+                <Stack gap="md">
+                    <Text size="sm" c="dimmed">
+                        Block the model during recurring days/hours (server local time). Requests to this model during a
+                        blocked window get a 503 Service Unavailable response instead of being relayed upstream.
+                    </Text>
+
+                    { draftWindows.length === 0 && (
+                        <Text c="dimmed" size="sm" ta="center">No restrictions configured.</Text>
+                    ) }
+
+                    { draftWindows.map( ( entry, index ) => (
+                        <Stack key={ index } gap={ 6 } p="sm" style={ { border: '1px solid var(--mantine-color-gray-3)', borderRadius: 8 } }>
+                            <Group justify="space-between" wrap="nowrap">
+                                <Chip.Group
+                                    multiple
+                                    value={ entry.daysOfWeek.map( String ) }
+                                    onChange={ ( values ) => toggleWindowDays( index, values ) }
+                                >
+                                    <Group gap={ 4 }>
+                                        { DAY_LABELS.map( ( label, day ) => (
+                                            <Chip key={ day } value={ String( day ) } size="xs">{ label }</Chip>
+                                        ) ) }
+                                    </Group>
+                                </Chip.Group>
+                                <ActionIcon variant="subtle" color="red" onClick={ () => removeWindow( index ) }>
+                                    <IconTrash size={ 14 } />
+                                </ActionIcon>
+                            </Group>
+                            <Group gap="sm">
+                                <TextInput
+                                    type="time"
+                                    label="From"
+                                    size="xs"
+                                    value={ entry.startTime }
+                                    onChange={ ( e ) => updateWindow( index, { startTime: e.currentTarget.value } ) }
+                                />
+                                <TextInput
+                                    type="time"
+                                    label="To"
+                                    size="xs"
+                                    value={ entry.endTime }
+                                    onChange={ ( e ) => updateWindow( index, { endTime: e.currentTarget.value } ) }
+                                />
+                            </Group>
+                            { entry.daysOfWeek.length === 0 && (
+                                <Text c="red" size="xs">Select at least one day.</Text>
+                            ) }
+                        </Stack>
+                    ) ) }
+
+                    <Button variant="default" size="xs" leftSection={ <IconPlus size={ 14 } /> } onClick={ addWindow }>
+                        Add window
+                    </Button>
+
+                    <Group justify="flex-end" mt="sm">
+                        <Button variant="default" onClick={ closeScheduleEditor }>Cancel</Button>
+                        <Button
+                            loading={ setModelSchedule.isPending }
+                            disabled={ !scheduleIsValid || setModelSchedule.isPending }
+                            onClick={ saveSchedule }
+                        >
+                            Save
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Card>
     );
 }

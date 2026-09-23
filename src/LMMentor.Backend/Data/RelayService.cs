@@ -105,6 +105,12 @@ public sealed class RelayService
             throw new RelayException(HttpStatusCode.Forbidden, "This API key is not allowed to use the requested model.");
         }
 
+        // Restrição recorrente de horário (ex.: rush hour de um provedor): responde 503 em vez de encaminhar.
+        if (ModelAvailability.IsBlockedAt(match.BlockedWindows, DateTime.Now))
+        {
+            throw new RelayException(HttpStatusCode.ServiceUnavailable, $"Model '{model}' is temporarily unavailable due to a scheduled restriction window.");
+        }
+
         var endpoint = _endpoints.GetById(match.EndpointId);
         if (endpoint is null)
         {
@@ -293,6 +299,7 @@ public sealed class RelayService
         DisplayName = dto.DisplayName,
         ContextSize = dto.ContextSize,
         Enabled = dto.Enabled,
+        BlockedWindows = dto.BlockedWindows.ToList(),
     };
 }
 

@@ -20,5 +20,8 @@ public sealed class ModelEntity
     /// <summary>Modelo exposto na API pública. Falso por padrão: a habilitação é opt-in.</summary>
     public bool Enabled { get; set; }
 
+    /// <summary>Janelas recorrentes (dia da semana + horário) em que o modelo fica indisponível.</summary>
+    public List<ModelAvailabilityWindow> BlockedWindows { get; set; } = new();
+
     public DateTime CreatedAt { get; set; }
 }

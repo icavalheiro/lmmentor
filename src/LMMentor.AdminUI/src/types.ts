@@ -32,6 +32,16 @@ export interface Model
     displayName: string;
     contextSize: number | null;
     enabled: boolean;
+    blockedWindows: AvailabilityWindow[];
+}
+
+// Janela recorrente (dia da semana + horário) em que um modelo fica indisponível.
+export interface AvailabilityWindow
+{
+    // 0=domingo … 6=sábado, igual a Date.getDay().
+    daysOfWeek: number[];
+    startTime: string; // "HH:mm"
+    endTime: string; // "HH:mm"
 }
 
 export interface ApiKey
