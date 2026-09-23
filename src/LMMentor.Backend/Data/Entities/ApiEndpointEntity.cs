@@ -13,7 +13,7 @@ public sealed class ApiEndpointEntity
     /// <summary>URL base do endpoint (ex.: https://api.openai.com/v1).</summary>
     public string Url { get; set; } = string.Empty;
 
-    /// <summary>Token de acesso em texto puro. A UI exibe apenas mascarado.</summary>
+    /// <summary>Credencial usada somente nas chamadas ao provedor upstream.</summary>
     public string AccessToken { get; set; } = string.Empty;
 
     /// <summary>online | offline — resultado da última verificação de status.</summary>

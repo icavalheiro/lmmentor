@@ -139,7 +139,8 @@ export function EndpointDetailPage ()
                 <div>
                     <Text fw={ 600 }>Discovered models</Text>
                     <Text c="dimmed" size="sm">
-                        Enable/disable models and customize the exposed name. Names must be unique across all endpoints.
+                        Models are discovered disabled — enable only the ones you want to expose and customize the exposed name.
+                        Names must be unique across all endpoints.
                     </Text>
                 </div>
 

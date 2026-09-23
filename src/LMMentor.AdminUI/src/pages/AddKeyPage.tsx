@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ActionIcon, Alert, Button, Card, Code, Group, Modal, MultiSelect, Stack, Text, TextInput } from '@mantine/core';
 import { IconArrowLeft, IconCheck, IconCopy } from '@tabler/icons-react';
@@ -17,12 +17,6 @@ export function AddKeyPage ()
     const [ createdKey, setCreatedKey ] = useState<CreatedKey | null>( null );
     const [ error, setError ] = useState( '' );
     const [ copied, setCopied ] = useState( false );
-
-    // Reseta o feedback de cópia sempre que uma nova chave é exibida.
-    useEffect( () =>
-    {
-        setCopied( false );
-    }, [ createdKey ] );
 
     async function handleCopy ()
     {
@@ -51,7 +45,11 @@ export function AddKeyPage ()
         addKey.mutate(
             { name: name.trim(), allowedModelIds: allowed.length > 0 ? allowed : undefined },
             {
-                onSuccess: ( created ) => setCreatedKey( created ),
+                onSuccess: ( created ) =>
+                {
+                    setCopied( false );
+                    setCreatedKey( created );
+                },
                 onError: ( err ) => setError( err instanceof Error ? err.message : 'Failed to create the key.' ),
             },
         );

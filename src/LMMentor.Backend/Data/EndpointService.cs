@@ -128,7 +128,8 @@ public sealed class EndpointService
     /// <summary>
     /// Força a re-verificação do status e a descoberta de modelos: adiciona novos,
     /// remove os que sumiram do provedor e preserva as customizações dos existentes.
-    /// O contexto é reavaliado a cada refresh, pois o provedor pode alterá-lo.
+    /// Modelos novos entram desabilitados, pois expor um modelo é escolha explícita
+    /// do usuário. O contexto é reavaliado a cada refresh, pois o provedor pode alterá-lo.
     /// </summary>
     public async Task<ApiEndpointEntity?> RefreshAsync(string id, CancellationToken ct)
     {
@@ -152,7 +153,7 @@ public sealed class EndpointService
             }
         }
 
-        // Novos modelos são criados; existentes mantêm nome exposto e habilitação.
+        // Novos modelos são criados desabilitados; existentes mantêm nome exposto e habilitação.
         foreach (var found in discovered)
         {
             if (byUpstreamId.TryGetValue(found.UpstreamModelId, out var current))
@@ -175,7 +176,7 @@ public sealed class EndpointService
                 UpstreamModelId = found.UpstreamModelId,
                 DisplayName = string.Empty,
                 ContextSize = found.ContextSize,
-                Enabled = true,
+                Enabled = false,
                 CreatedAt = DateTime.UtcNow,
             });
         }

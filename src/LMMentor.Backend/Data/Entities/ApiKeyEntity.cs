@@ -7,8 +7,14 @@ public sealed class ApiKeyEntity
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Valor completo da chave (ex.: sk-lm-...). Exibida uma única vez na criação.</summary>
-    public string Key { get; set; } = string.Empty;
+    /// <summary>Hash SHA-256 da chave, usado na autenticação.</summary>
+    public string KeyHash { get; set; } = string.Empty;
+
+    /// <summary>Representação mascarada exibida ao administrador.</summary>
+    public string KeyPreview { get; set; } = string.Empty;
+
+    /// <summary>Valor legado recuperado somente para migração na inicialização.</summary>
+    public string? Key { get; set; }
 
     /// <summary>Ids de modelos permitidos. Nulo/vazio = todos os modelos habilitados.</summary>
     public List<string>? AllowedModelIds { get; set; }

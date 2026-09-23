@@ -23,14 +23,12 @@ export async function copyToClipboard ( text: string ): Promise<boolean>
     document.body.appendChild( textarea );
     textarea.select();
 
-    let copied = false;
     try
     {
-        copied = document.execCommand( 'copy' );
+        return document.execCommand( 'copy' );
     }
     finally
     {
         document.body.removeChild( textarea );
     }
-    return copied;
 }

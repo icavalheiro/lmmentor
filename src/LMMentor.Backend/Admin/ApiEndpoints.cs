@@ -82,7 +82,7 @@ public static class ApiEndpoints
 
             var key = keys.Create(request.Name, request.AllowedModelIds);
             // O valor completo da chave é retornado apenas aqui, no momento da criação.
-            return Results.Ok(new { id = key.Id, name = key.Name, key = key.Key, allowedModelIds = key.AllowedModelIds, createdAt = key.CreatedAt });
+            return Results.Ok(new { id = key.Entity.Id, name = key.Entity.Name, key = key.Value, allowedModelIds = key.Entity.AllowedModelIds, createdAt = key.Entity.CreatedAt });
         });
 
         group.MapPost("/keys/{id}/revoke", (string id, ApiKeyService keys) =>

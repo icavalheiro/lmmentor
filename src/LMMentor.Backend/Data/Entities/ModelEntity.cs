@@ -17,7 +17,8 @@ public sealed class ModelEntity
     /// <summary>Tamanho de contexto informado pelo provedor, se disponível.</summary>
     public int? ContextSize { get; set; }
 
-    public bool Enabled { get; set; } = true;
+    /// <summary>Modelo exposto na API pública. Falso por padrão: a habilitação é opt-in.</summary>
+    public bool Enabled { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }
