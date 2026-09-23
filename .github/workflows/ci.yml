@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -35,6 +39,10 @@ jobs:
         working-directory: src/LMMentor.AdminUI
         run: npm run lint
 
+      - name: Test Admin UI
+        working-directory: src/LMMentor.AdminUI
+        run: npm test
+
       - name: Build Admin UI
         working-directory: src/LMMentor.AdminUI
         run: npm run build
@@ -43,7 +51,69 @@ jobs:
         run: dotnet restore src/LMMentor.slnx
 
       - name: Build backend
-        run: dotnet build src/LMMentor.slnx --no-restore
+        run: dotnet build src/LMMentor.slnx --configuration Release --no-restore
 
-      - name: Run .NET tests
-        run: dotnet test src/LMMentor.slnx --no-restore
+      - name: Run unit tests
+        run: >-
+          dotnet test src/LMMentor.Backend.UnitTests/LMMentor.Backend.UnitTests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFileName=unit-tests.trx" --results-directory artifacts/test-results
+
+      - name: Run integration tests
+        run: >-
+          dotnet test src/LMMentor.Backend.IntegrationTests/LMMentor.Backend.IntegrationTests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFileName=integration-tests.trx" --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+          if-no-files-found: ignore
+
+  e2e:
+    name: e2e smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/LMMentor.AdminUI/package-lock.json
+
+      - name: Install Admin UI dependencies
+        working-directory: src/LMMentor.AdminUI
+        run: npm ci
+
+      # O smoke sobe o backend real, que serve o build do AdminUI a partir de wwwroot.
+      - name: Build Admin UI
+        working-directory: src/LMMentor.AdminUI
+        run: npm run build
+
+      - name: Install Playwright browser
+        working-directory: src/LMMentor.AdminUI
+        run: npx playwright install --with-deps chromium
+
+      - name: Run end-to-end smoke tests
+        working-directory: src/LMMentor.AdminUI
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: src/LMMentor.AdminUI/playwright-report
+          if-no-files-found: ignore

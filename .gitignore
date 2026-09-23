@@ -5,11 +5,20 @@ obj/
 .vs/
 publish/
 wwwroot/
+TestResults/
+artifacts/
 
 # Node / Vite
 node_modules/
 dist/
 npm-debug.log*
+
+# Test artifacts
+coverage/
+.vitest/
+playwright-report/
+test-results/
+src/LMMentor.AdminUI/e2e/.auth/
 
 # LiteDB (runtime data)
 *.db

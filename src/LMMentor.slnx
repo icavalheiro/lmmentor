@@ -1,3 +1,5 @@
 <Solution>
   <Project Path="LMMentor.Backend/LMMentor.Backend.csproj" />
+  <Project Path="LMMentor.Backend.UnitTests/LMMentor.Backend.UnitTests.csproj" />
+  <Project Path="LMMentor.Backend.IntegrationTests/LMMentor.Backend.IntegrationTests.csproj" />
 </Solution>

@@ -92,3 +92,6 @@ app.MapOllamaCompatibilityEndpoints();
 app.MapRelayEndpoints();
 
 app.Run();
+
+// Declaração explícita para que os testes de integração usem WebApplicationFactory<Program>.
+public partial class Program;
