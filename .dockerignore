@@ -8,6 +8,8 @@ src/LMMentor.Backend/wwwroot/
 
 # Banco de dados local e segredos
 *.db
+*.db-shm
+*.db-wal
 .env
 .env.*
 
