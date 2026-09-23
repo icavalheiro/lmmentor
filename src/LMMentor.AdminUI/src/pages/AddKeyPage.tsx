@@ -102,7 +102,7 @@ export function AddKeyPage ()
                     </Text>
                     <Group justify="space-between" wrap="nowrap">
                         <Code style={ { flex: 1 } }>{ createdKey?.key }</Code>
-                        <ActionIcon variant="light" color={ copied ? 'teal' : undefined } onClick={ handleCopy }>
+                        <ActionIcon aria-label="Copy key" variant="light" color={ copied ? 'teal' : undefined } onClick={ handleCopy }>
                             { copied ? <IconCheck size={ 16 } /> : <IconCopy size={ 16 } /> }
                         </ActionIcon>
                     </Group>

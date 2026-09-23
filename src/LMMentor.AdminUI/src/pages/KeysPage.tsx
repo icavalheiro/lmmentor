@@ -97,13 +97,13 @@ export function KeysPage ()
                                         <Group gap={ 4 } justify="flex-end">
                                             { !isRevoked && (
                                                 <Tooltip label="Revoke">
-                                                    <ActionIcon variant="subtle" color="orange" size="sm" onClick={ () => revokeKey.mutate( key.id ) }>
+                                                    <ActionIcon aria-label="Revoke" variant="subtle" color="orange" size="sm" onClick={ () => revokeKey.mutate( key.id ) }>
                                                         <IconBan size={ 16 } />
                                                     </ActionIcon>
                                                 </Tooltip>
                                             ) }
                                             <Tooltip label="Delete">
-                                                <ActionIcon variant="subtle" color="red" size="sm" onClick={ () => deleteKey.mutate( key.id ) }>
+                                                <ActionIcon aria-label="Delete" variant="subtle" color="red" size="sm" onClick={ () => deleteKey.mutate( key.id ) }>
                                                     <IconTrash size={ 16 } />
                                                 </ActionIcon>
                                             </Tooltip>

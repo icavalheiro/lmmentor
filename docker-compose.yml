@@ -1,5 +1,7 @@
 services:
   lmmentor:
+    # Para usar a imagem publicada em vez de construir localmente, troque build/image por:
+    # image: ghcr.io/icavalheiro/lmmentor:latest
     build: .
     image: lmmentor
     container_name: lmmentor
