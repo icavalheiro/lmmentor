@@ -7,10 +7,7 @@ services:
     container_name: lmmentor
     environment:
       ASPNETCORE_URLS: http://+:6565
-    ports:
-      - "6565:6565"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     volumes:
       - lmmentor-data:/data
     # Rotação de logs do container: o Docker não suporta retenção por tempo,
