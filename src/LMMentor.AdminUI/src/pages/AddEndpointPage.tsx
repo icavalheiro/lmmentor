@@ -15,10 +15,12 @@ const ENDPOINT_TYPES: { value: EndpointType; label: string; }[] = [
     { value: 'lmstudio', label: 'LM Studio' },
     { value: 'llamacpp', label: 'llama.cpp (llama-server)' },
     { value: 'unsloth', label: 'Unsloth' },
+    { value: 'anthropic', label: 'Anthropic (Claude)' },
     { value: 'custom', label: 'Custom (OpenAI-compatible)' },
 ];
 
 // URL base que o discovery e o relay usam como prefixo ({url}/models e {url}/chat/completions).
+// A Anthropic usa a raiz da API: o backend garante o sufixo /v1 nos chamados.
 const DEFAULT_URLS: Record<EndpointType, string> = {
     openai: 'https://api.openai.com/v1',
     deepseek: 'https://api.deepseek.com',
@@ -28,6 +30,7 @@ const DEFAULT_URLS: Record<EndpointType, string> = {
     lmstudio: 'http://localhost:1234/v1',
     llamacpp: 'http://localhost:8080/v1',
     unsloth: 'http://localhost:8888/v1',
+    anthropic: 'https://api.anthropic.com',
     custom: 'https://provider.example.com/v1',
 };
 
@@ -101,8 +104,8 @@ export function AddEndpointPage ()
                 />
 
                 <PasswordInput
-                    label="Access token (optional for local Ollama/LM Studio)"
-                    placeholder="sk-…"
+                    label="Access token (required for cloud providers; optional for local Ollama/LM Studio)"
+                    placeholder={ type === 'anthropic' ? 'sk-ant-…' : 'sk-…' }
                     value={ token }
                     onChange={ ( e ) => setToken( e.currentTarget.value ) }
                 />

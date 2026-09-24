@@ -121,4 +121,74 @@ public class ModelDiscoveryServiceTests
         // Sem correspondência de nome, o contexto é aplicado por ser o único modelo do endpoint.
         Assert.Equal(16384, Assert.Single(models).ContextSize);
     }
+
+    [Fact]
+    public async Task DiscoverAsync_ReadsAnthropicModelsContextAndOutputCap()
+    {
+        var handler = new StubHttpMessageHandler().RespondJson(
+            "http://anthropic.test/v1/models?limit=1000",
+            """
+            { "data": [
+                { "id": "claude-sonnet-4-5", "type": "model", "max_input_tokens": 200000, "max_tokens": 64000 },
+                { "id": "claude-haiku-4-5", "type": "model" }
+            ] }
+            """);
+
+        var (online, models) = await CreateService(handler)
+            .DiscoverAsync(Endpoint("anthropic", url: "http://anthropic.test", token: "sk-ant-test"), CancellationToken.None);
+
+        Assert.True(online);
+        Assert.Equal(new[] { "claude-sonnet-4-5", "claude-haiku-4-5" }, models.Select(m => m.UpstreamModelId).ToArray());
+        Assert.Equal(200000, models[0].ContextSize);
+        Assert.Equal(64000, models[0].MaxOutputTokens);
+        // Modelo sem os campos: ambos nulos.
+        Assert.Null(models[1].ContextSize);
+        Assert.Null(models[1].MaxOutputTokens);
+
+        // Autenticação e versionamento da API Anthropic.
+        var request = handler.Requests[0].Request;
+        Assert.Equal("sk-ant-test", request.Headers.GetValues("x-api-key").Single());
+        Assert.Equal(AnthropicAdapter.ApiVersion, request.Headers.GetValues("anthropic-version").Single());
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_AcceptsBaseUrlWithV1Suffix()
+    {
+        var handler = new StubHttpMessageHandler().RespondJson(
+            "http://anthropic.test/v1/models?limit=1000",
+            """{ "data": [ { "id": "claude-sonnet-4-5" } ] }""");
+
+        var (online, models) = await CreateService(handler)
+            .DiscoverAsync(Endpoint("anthropic", url: "http://anthropic.test/v1"), CancellationToken.None);
+
+        Assert.True(online);
+        Assert.Single(models);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_FollowsAnthropicPagination()
+    {
+        var handler = new StubHttpMessageHandler()
+            .RespondJson("http://anthropic.test/v1/models?limit=1000",
+                """{ "data": [ { "id": "m-1" }, { "id": "m-2" } ], "has_more": true, "last_id": "m-2" }""")
+            .RespondJson("http://anthropic.test/v1/models?limit=1000&after_id=m-2",
+                """{ "data": [ { "id": "m-3" } ], "has_more": false }""");
+
+        var (online, models) = await CreateService(handler).DiscoverAsync(Endpoint("anthropic", url: "http://anthropic.test"), CancellationToken.None);
+
+        Assert.True(online);
+        Assert.Equal(new[] { "m-1", "m-2", "m-3" }, models.Select(m => m.UpstreamModelId).ToArray());
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_AnthropicAuthFailureMeansOffline()
+    {
+        var handler = new StubHttpMessageHandler().Respond(
+            "http://anthropic.test/v1/models?limit=1000", HttpStatusCode.Unauthorized, """{ "type": "error" }""");
+
+        var (online, models) = await CreateService(handler).DiscoverAsync(Endpoint("anthropic", url: "http://anthropic.test"), CancellationToken.None);
+
+        Assert.False(online);
+        Assert.Empty(models);
+    }
 }

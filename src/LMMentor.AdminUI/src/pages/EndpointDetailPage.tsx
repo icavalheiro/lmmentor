@@ -213,6 +213,7 @@ export function EndpointDetailPage ()
                             <Table.Th>Upstream model</Table.Th>
                             <Table.Th>Exposed name</Table.Th>
                             <Table.Th ta="right">Context</Table.Th>
+                            <Table.Th ta="right">Max output</Table.Th>
                             <Table.Th ta="center">Enabled</Table.Th>
                             <Table.Th ta="center">Schedule</Table.Th>
                         </Table.Tr>
@@ -274,6 +275,9 @@ export function EndpointDetailPage ()
                                 </Table.Td>
                                 <Table.Td ta="right">
                                     <Text size="sm">{ model.contextSize ? model.contextSize.toLocaleString() : '—' }</Text>
+                                </Table.Td>
+                                <Table.Td ta="right">
+                                    <Text size="sm">{ model.maxOutputTokens ? model.maxOutputTokens.toLocaleString() : '—' }</Text>
                                 </Table.Td>
                                 <Table.Td ta="center">
                                     <Switch

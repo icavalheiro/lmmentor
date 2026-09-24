@@ -11,6 +11,7 @@ public sealed record ModelDto(
     string UpstreamModelId,
     string DisplayName,
     int? ContextSize,
+    int? MaxOutputTokens,
     bool Enabled,
     IReadOnlyList<ModelAvailabilityWindow> BlockedWindows);
 
@@ -161,9 +162,21 @@ public sealed class EndpointService
             {
                 // Cada update pode mudar o contexto (ex.: modelo recarregado com outro
                 // tamanho), então o valor reportado sempre substitui o gravado.
+                var changed = false;
                 if (found.ContextSize is not null && current.ContextSize != found.ContextSize)
                 {
                     current.ContextSize = found.ContextSize;
+                    changed = true;
+                }
+
+                if (found.MaxOutputTokens is not null && current.MaxOutputTokens != found.MaxOutputTokens)
+                {
+                    current.MaxOutputTokens = found.MaxOutputTokens;
+                    changed = true;
+                }
+
+                if (changed)
+                {
                     _models.Update(current);
                 }
 
@@ -177,6 +190,7 @@ public sealed class EndpointService
                 UpstreamModelId = found.UpstreamModelId,
                 DisplayName = string.Empty,
                 ContextSize = found.ContextSize,
+                MaxOutputTokens = found.MaxOutputTokens,
                 Enabled = false,
                 CreatedAt = DateTime.UtcNow,
             });
@@ -249,5 +263,5 @@ public sealed class EndpointService
         string.IsNullOrWhiteSpace(model.DisplayName) ? model.UpstreamModelId : model.DisplayName!;
 
     private static ModelDto ToDto(ModelEntity m) =>
-        new(m.Id, m.EndpointId, m.UpstreamModelId, NullToEmpty(m.DisplayName), m.ContextSize, m.Enabled, m.BlockedWindows ?? new());
+        new(m.Id, m.EndpointId, m.UpstreamModelId, NullToEmpty(m.DisplayName), m.ContextSize, m.MaxOutputTokens, m.Enabled, m.BlockedWindows ?? new());
 }

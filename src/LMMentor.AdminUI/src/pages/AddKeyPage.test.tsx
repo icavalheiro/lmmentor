@@ -13,6 +13,7 @@ const models: Model[] = [
         upstreamModelId: 'upstream-fast',
         displayName: 'fast',
         contextSize: 8192,
+        maxOutputTokens: null,
         enabled: true,
         blockedWindows: [],
     },

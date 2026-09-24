@@ -123,6 +123,12 @@ public sealed class RelayService
     /// <summary>Encaminha uma requisição de chat completion para o upstream e registra o uso.</summary>
     public async Task<RelayResponse> RelayChatAsync(ResolvedModel resolved, Stream requestBody, CancellationToken ct)
     {
+        // Upstream Anthropic: converte OpenAI → Anthropic Messages nos dois sentidos.
+        if (IsAnthropic(resolved.Endpoint))
+        {
+            return await RelayOpenAiToAnthropicAsync(resolved, requestBody, ct);
+        }
+
         var (isStreaming, bodyToForward) = PrepareRequestBody(requestBody, resolved.Model.UpstreamModelId);
 
         var client = _httpClientFactory.CreateClient();
@@ -176,6 +182,348 @@ public sealed class RelayService
             {
                 response?.Dispose();
             }
+        }
+    }
+
+    /// <summary>Modelos habilitados e permitidos pela chave, no formato da Anthropic Models API
+    /// (usado na descoberta de modelos do Claude Code via gateway).</summary>
+    public object ListAnthropicModels(string? apiKeyValue)
+    {
+        var key = ResolveKey(apiKeyValue);
+        var bypassesAuthentication = _settings.OllamaCompatibilityEnabled;
+        var data = _endpoints.GetAllModelDtos()
+            .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
+            .Select(m => new
+            {
+                id = EndpointService.EffectiveName(ToEntity(m)),
+                type = "model",
+                display_name = string.IsNullOrEmpty(m.DisplayName) ? null : m.DisplayName,
+                max_input_tokens = m.ContextSize,
+                max_tokens = m.MaxOutputTokens,
+            });
+
+        return new { @object = "list", data };
+    }
+
+    /// <summary>
+    /// Encaminha um pedido Anthropic Messages (ex.: Claude Code) para o upstream e registra o uso.
+    /// Upstream Anthropic: pass-through com reescrita do model e headers do cliente encaminhados.
+    /// Upstream OpenAI-compatible: converte nos dois sentidos (pedido, resposta e stream SSE).
+    /// </summary>
+    public async Task<RelayResponse> RelayMessagesAsync(
+        ResolvedModel resolved, Stream requestBody, string? clientAnthropicBeta, CancellationToken ct)
+    {
+        if (IsAnthropic(resolved.Endpoint))
+        {
+            return await RelayAnthropicPassthroughAsync(resolved, requestBody, clientAnthropicBeta, ct);
+        }
+
+        return await RelayAnthropicToOpenAiAsync(resolved, requestBody, ct);
+    }
+
+    private static bool IsAnthropic(ApiEndpointEntity endpoint) =>
+        string.Equals(endpoint.Type, "anthropic", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Cliente OpenAI → upstream Anthropic: converte o pedido para a Messages API e a resposta
+    /// (ou stream SSE) de volta para o formato chat.completions.
+    /// </summary>
+    private async Task<RelayResponse> RelayOpenAiToAnthropicAsync(ResolvedModel resolved, Stream requestBody, CancellationToken ct)
+    {
+        var (isStreaming, requestBytes) = PrepareAnthropicRequest(requestBody, resolved);
+
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(30);
+
+        var url = AnthropicAdapter.V1Root(resolved.Endpoint.Url) + "/messages";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new ByteArrayContent(requestBytes),
+        };
+        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        AddAnthropicAuthHeaders(request, resolved.Endpoint);
+        if (isStreaming)
+        {
+            request.Headers.Accept.ParseAdd("text/event-stream");
+        }
+
+        HttpResponseMessage? response = null;
+        var handedOffToStream = false;
+        try
+        {
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/json";
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Erro do upstream: preserva a mensagem (formato Anthropic) e não conta como sucesso.
+                var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
+                _usage.Log(resolved.Model.Id, resolved.Key?.Id, 0, 0, success: false);
+                return new RelayResponse(response.StatusCode, contentType, new MemoryStream(errorBody));
+            }
+
+            if (isStreaming)
+            {
+                // O response permanece aberto: o stream conversor assume a posse e o descarta.
+                var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
+                var relayed = new AnthropicToOpenAiSseStream(
+                    upstreamStream, resolved.Model.Id, resolved.Key?.Id, _usage, response, ct, resolved.Model.UpstreamModelId);
+                handedOffToStream = true;
+                return new RelayResponse(HttpStatusCode.OK, "text/event-stream", relayed);
+            }
+
+            var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
+            LogAnthropicUsageFromJson(responseBody, resolved.Model.Id, resolved.Key?.Id, _usage);
+            var converted = AnthropicAdapter.ToOpenAiCompletion(
+                JsonSerializer.Deserialize<JsonElement>(responseBody), resolved.Model.UpstreamModelId);
+            return new RelayResponse(HttpStatusCode.OK, "application/json", new MemoryStream(converted));
+        }
+        finally
+        {
+            if (!handedOffToStream)
+            {
+                response?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cliente Anthropic → upstream Anthropic: pass-through do corpo (reescrita apenas do model,
+    /// como no relay OpenAI), encaminhando os headers anthropic-version/anthropic-beta do cliente.
+    /// </summary>
+    private async Task<RelayResponse> RelayAnthropicPassthroughAsync(
+        ResolvedModel resolved, Stream requestBody, string? clientAnthropicBeta, CancellationToken ct)
+    {
+        var (isStreaming, bodyToForward) = PreparePassthroughRequestBody(requestBody, resolved.Model.UpstreamModelId);
+
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(30);
+
+        var url = AnthropicAdapter.V1Root(resolved.Endpoint.Url) + "/messages";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StreamContent(bodyToForward),
+        };
+        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        AddAnthropicAuthHeaders(request, resolved.Endpoint);
+
+        // O Claude Code envia betas pareados com campos do corpo: os dois precisam chegar ao upstream.
+        if (!string.IsNullOrWhiteSpace(clientAnthropicBeta))
+        {
+            request.Headers.TryAddWithoutValidation("anthropic-beta", clientAnthropicBeta);
+        }
+
+        if (isStreaming)
+        {
+            request.Headers.Accept.ParseAdd("text/event-stream");
+        }
+
+        HttpResponseMessage? response = null;
+        var handedOffToStream = false;
+        try
+        {
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
+                _usage.Log(resolved.Model.Id, resolved.Key?.Id, 0, 0, success: false);
+                return new RelayResponse(
+                    response.StatusCode,
+                    response.Content.Headers.ContentType?.MediaType ?? "application/json",
+                    new MemoryStream(errorBody));
+            }
+
+            if (isStreaming)
+            {
+                // Pass-through com captura de uso: os bytes (incluindo pings) transitam intactos.
+                var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
+                var relayed = new AnthropicSsePassThroughStream(
+                    upstreamStream, resolved.Model.Id, resolved.Key?.Id, _usage, response, ct);
+                handedOffToStream = true;
+                return new RelayResponse(HttpStatusCode.OK, "text/event-stream", relayed);
+            }
+
+            var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
+            LogAnthropicUsageFromJson(responseBody, resolved.Model.Id, resolved.Key?.Id, _usage);
+            // A resposta já está no formato Anthropic: devolve como veio.
+            return new RelayResponse(HttpStatusCode.OK, "application/json", new MemoryStream(responseBody));
+        }
+        finally
+        {
+            if (!handedOffToStream)
+            {
+                response?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cliente Anthropic → upstream OpenAI-compatible: converte o pedido para chat.completions e
+    /// a resposta (ou stream SSE) de volta para os eventos da Messages API.
+    /// </summary>
+    private async Task<RelayResponse> RelayAnthropicToOpenAiAsync(ResolvedModel resolved, Stream requestBody, CancellationToken ct)
+    {
+        var (isStreaming, requestBytes) = PrepareOpenAiRequest(requestBody, resolved.Model.UpstreamModelId);
+
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(30);
+
+        var url = TrimTrailingSlash(resolved.Endpoint.Url) + "/chat/completions";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new ByteArrayContent(requestBytes),
+        };
+        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+
+        if (!string.IsNullOrEmpty(resolved.Endpoint.AccessToken))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", resolved.Endpoint.AccessToken);
+        }
+
+        HttpResponseMessage? response = null;
+        var handedOffToStream = false;
+        try
+        {
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Erro do upstream em formato OpenAI: o cliente Anthropic vê o envelope dele.
+                var errorBody = await response.Content.ReadAsByteArrayAsync(ct);
+                _usage.Log(resolved.Model.Id, resolved.Key?.Id, 0, 0, success: false);
+                return new RelayResponse(
+                    response.StatusCode,
+                    response.Content.Headers.ContentType?.MediaType ?? "application/json",
+                    new MemoryStream(errorBody));
+            }
+
+            if (isStreaming)
+            {
+                var upstreamStream = await response.Content.ReadAsStreamAsync(ct);
+                var relayed = new OpenAiToAnthropicSseStream(
+                    upstreamStream, resolved.Model.Id, resolved.Key?.Id, _usage, response, ct, resolved.Model.UpstreamModelId);
+                handedOffToStream = true;
+                return new RelayResponse(HttpStatusCode.OK, "text/event-stream", relayed);
+            }
+
+            var responseBody = await response.Content.ReadAsByteArrayAsync(ct);
+            LogUsageFromJson(responseBody, resolved.Model.Id, resolved.Key?.Id, _usage);
+            var converted = AnthropicAdapter.ToAnthropicMessage(
+                JsonSerializer.Deserialize<JsonElement>(responseBody), resolved.Model.UpstreamModelId);
+            return new RelayResponse(HttpStatusCode.OK, "application/json", new MemoryStream(converted));
+        }
+        finally
+        {
+            if (!handedOffToStream)
+            {
+                response?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>Headers de autenticação/versionamento da API Anthropic para um upstream.</summary>
+    private static void AddAnthropicAuthHeaders(HttpRequestMessage request, ApiEndpointEntity endpoint)
+    {
+        if (!string.IsNullOrEmpty(endpoint.AccessToken))
+        {
+            // A Anthropic usa x-api-key (não Bearer) na API pública.
+            request.Headers.TryAddWithoutValidation("x-api-key", endpoint.AccessToken);
+        }
+
+        request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicAdapter.ApiVersion);
+    }
+
+    /// <summary>
+    /// Lê o pedido OpenAI, detecta streaming e o converte para a Anthropic Messages API.
+    /// O max_tokens padrão usa o teto conhecido do modelo (descoberto via /v1/models).
+    /// </summary>
+    private (bool isStreaming, byte[] body) PrepareAnthropicRequest(Stream requestBody, ResolvedModel resolved)
+    {
+        using var reader = new StreamReader(requestBody);
+        var raw = reader.ReadToEnd();
+
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        var isStreaming = root.TryGetProperty("stream", out var streamProp) && streamProp.ValueKind == JsonValueKind.True;
+
+        return (isStreaming, AnthropicAdapter.BuildMessagesRequest(root, resolved.Model.UpstreamModelId, resolved.Model.MaxOutputTokens));
+    }
+
+    /// <summary>
+    /// Lê o pedido Anthropic, detecta streaming e o converte para OpenAI chat-completions
+    /// (incluindo stream_options.include_usage nos streams).
+    /// </summary>
+    private static (bool isStreaming, byte[] body) PrepareOpenAiRequest(Stream requestBody, string upstreamModelId)
+    {
+        using var reader = new StreamReader(requestBody);
+        var raw = reader.ReadToEnd();
+
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        var isStreaming = root.TryGetProperty("stream", out var streamProp) && streamProp.ValueKind == JsonValueKind.True;
+
+        return (isStreaming, AnthropicAdapter.BuildChatCompletionRequest(root, upstreamModelId));
+    }
+
+    /// <summary>
+    /// Pass-through do corpo Anthropic: reescreve o model para o id upstream e preserva todos os
+    /// demais campos byte a byte (system com cache_control, thinking, tools etc.).
+    /// </summary>
+    private static (bool isStreaming, Stream body) PreparePassthroughRequestBody(Stream requestBody, string upstreamModelId)
+    {
+        using var reader = new StreamReader(requestBody);
+        var raw = reader.ReadToEnd();
+
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        var isStreaming = root.TryGetProperty("stream", out var streamProp) && streamProp.ValueKind == JsonValueKind.True;
+
+        // Sem using: quem consome o stream (StreamContent) é responsável pelo descarte.
+        var output = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(output))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (prop.Name == "model")
+                {
+                    writer.WriteString("model", upstreamModelId);
+                    continue;
+                }
+
+                writer.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writer);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        output.Position = 0;
+        return (isStreaming, output);
+    }
+
+    /// <summary>Extrai usage (input/output tokens) de uma resposta Anthropic e registra no log.</summary>
+    private static void LogAnthropicUsageFromJson(byte[] responseBody, string modelId, string? apiKeyId, UsageService usage)
+    {
+        try
+        {
+            var json = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            if (json.ValueKind == JsonValueKind.Object && json.TryGetProperty("usage", out var usageProp))
+            {
+                var input = usageProp.TryGetProperty("input_tokens", out var i) ? i.GetInt64() : 0;
+                var output = usageProp.TryGetProperty("output_tokens", out var o) ? o.GetInt64() : 0;
+                usage.Log(modelId, apiKeyId, input, output, success: true);
+            }
+            else
+            {
+                usage.Log(modelId, apiKeyId, 0, 0, success: true);
+            }
+        }
+        catch
+        {
+            // Uso não reportado (resposta malformada): registra com zeros.
+            usage.Log(modelId, apiKeyId, 0, 0, success: true);
         }
     }
 

@@ -6,7 +6,7 @@
 
 <p align="center">
    <strong>Lightweight, self-hosted LLM aggregator written in C# / ASP.NET Core</strong><br/>
-  <em>A single-binary, opinionated alternative to LiteLLM for routing, curating, and tracking multiple OpenAI-compatible LLMs.</em>
+  <em>A single-binary, opinionated alternative to LiteLLM for routing, curating, and tracking LLMs from OpenAI-compatible and Anthropic providers.</em>
 </p>
 
 <p align="center">
@@ -33,13 +33,13 @@
 
 ## 🌟 Overview
 
-**LMMentor** acts as a unified gateway sitting in front of your upstream LLM providers (OpenAI, Azure OpenAI, Ollama, vLLM, LM Studio, Groq, Together, etc.). It aggregates their models behind a single OpenAI-compatible API endpoint and provides an embedded web UI for administration, model curation, API token management, and real-time usage metrics.
+**LMMentor** acts as a unified gateway sitting in front of your upstream LLM providers (OpenAI, Azure OpenAI, Anthropic/Claude, Ollama, vLLM, LM Studio, Groq, Together, etc.). It aggregates their models behind a single API gateway that speaks both the OpenAI Chat Completions protocol and the Anthropic Messages protocol — translating between the two when client and upstream disagree — and provides an embedded web UI for administration, model curation, API token management, and real-time usage metrics.
 
 ### Why LMMentor?
 
 - ⚡ **Simple Self-Hosted Deployment**: Runs as one ASP.NET Core service with no external database, queue, or cache required.
 - 🗄️ **Embedded LiteDB Storage**: All providers, curated models, tokens, and daily metrics live in a single local database file (`.db`). Trivially deployable and easily backed up.
-- 🔄 **OpenAI-Compatible In, OpenAI-Compatible Out**: Works out-of-the-box with any standard OpenAI client or SDK (`/v1/chat/completions`, `/v1/models`).
+- 🔄 **Format-Agnostic Gateway**: OpenAI clients (`/v1/chat/completions`, `/v1/models`) and Anthropic clients such as Claude Code (`/v1/messages`, `GET /v1/models` with the `anthropic-version` header) both work out of the box — requests are translated to whatever protocol the upstream speaks.
 - 🚀 **Low Latency & Memory-Efficient Streaming**: Passes tokens through via Server-Sent Events (SSE) with minimal buffering, low memory allocations, and connection pooling.
 - 📊 **Built-in Admin Dashboard**: An integrated admin interface, featuring first-run credential bootstrap, model toggling, and generation speed metrics (avg tokens/sec).
 
@@ -49,12 +49,13 @@
 
 ```mermaid
 flowchart LR
-    C[OpenAI-Compatible Clients] -->|Bearer Token| GW[LMMentor<br/>/v1/* Public API]
+    C[OpenAI & Anthropic Clients] -->|Bearer / x-api-key| GW[LMMentor<br/>/v1/* Public API]
     UI[Admin UI<br/>React + Mantine] -->|Admin Session| GW
     GW --> DB[(LiteDB Embedded)]
     GW --> P1[Provider A<br/>OpenAI / Azure]
     GW --> P2[Provider B<br/>Ollama / vLLM]
     GW --> P3[Provider N<br/>Groq / Together]
+    GW --> P4[Provider M<br/>Anthropic / Claude]
 ```
 
 ---
@@ -64,12 +65,13 @@ flowchart LR
 1. **Multi-Provider Aggregation**
    - Configure multiple upstream OpenAI-compatible endpoints with custom base URLs, API tokens, and allow/deny lists.
 2. **Automated Model Discovery**
-   - Discovers available models and their context window sizes from configured providers: vLLM/Groq report it in `GET /models` (`max_model_len`/`context_window`), Ollama via `/api/show`, LM Studio via its native REST API (`/api/v1/models`), and llama-server / Unsloth Studio via `GET /props`. Runs on demand, per endpoint, from the admin UI — no background polling, so every refresh re-reads the current context size.
+   - Discovers available models and their context window sizes from configured providers: vLLM/Groq report it in `GET /models` (`max_model_len`/`context_window`), Ollama via `/api/show`, LM Studio via its native REST API (`/api/v1/models`), and llama-server / Unsloth Studio via `GET /props`, and Anthropic via the paginated `GET /v1/models` (`max_input_tokens`, plus the model's output cap in `max_tokens`). Runs on demand, per endpoint, from the admin UI — no background polling, so every refresh re-reads the current context size.
 3. **Model Curation & Aliasing**
    - Discovered models start **disabled**, so nothing is exposed to downstream clients without an explicit decision: enable only the models you want to use and assign friendly aliases for a clean, stable model catalog.
-4. **Unified OpenAI-Compatible Endpoints**
-   - `GET /v1/models`: Lists active exposed models with metadata.
-   - `POST /v1/chat/completions`: Seamlessly routes requests and streams SSE responses.
+4. **Unified Public API (OpenAI + Anthropic)**
+   - `GET /v1/models`: Lists active exposed models with metadata — in the OpenAI shape, or in the Anthropic `ModelInfo` shape when the request carries the `anthropic-version` header (how Claude Code discovers models).
+   - `POST /v1/chat/completions`: Routes OpenAI requests to any upstream and streams SSE responses.
+   - `POST /v1/messages`: Anthropic Messages ingress — pass-through for Anthropic upstreams, full request/response/stream translation for OpenAI-compatible ones (and vice-versa: OpenAI clients can reach Claude through `/v1/chat/completions`).
 5. **Usage & Speed Metrics**
    - Tracks calls and input/output tokens per request (usage is extracted from the upstream response, including streamed `usage` chunks) and aggregates them on the dashboard: daily trend, per-model and per-key breakdowns, and average **tokens per second** over the selected window.
 6. **API Key Management**
@@ -117,6 +119,7 @@ lmmentor/
 - [x] **M2 — Providers & Discovery**: Endpoint CRUD, connection status checks, automated model discovery (OpenAI-compatible + Ollama) with context sizing, model renaming and exposure toggles.
 - [x] **M3 — Public OpenAI-Compatible API**: Bearer-key authentication (`sk-lm-...`), `/v1/models`, `/v1/chat/completions` with SSE streaming pass-through.
 - [x] **M4 — Metrics & Dashboard**: Per-call tracking, dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec) and on-demand model refresh from the admin UI.
+- [x] **M6 — Anthropic Gateway**: `anthropic` endpoint type with paginated model discovery, Anthropic Messages ingress (`POST /v1/messages`, `x-api-key`/Bearer auth), dual-format `GET /v1/models`, and bidirectional OpenAI ⇄ Anthropic translation (requests, responses and SSE streams) across all four client/upstream format combinations.
 - [ ] **M5 — Ongoing Hardening**: Memory and latency profiling of the relay path, release artifacts. Automated tests (unit + integration), CI and published container images are done.
 
 ---
@@ -166,7 +169,7 @@ npm run test:e2e
 ```
 
 - `src/LMMentor.Backend.UnitTests` exercises the data services in isolation against a temporary LiteDB file and a stubbed upstream provider.
-- `src/LMMentor.Backend.IntegrationTests` boots the real application in memory with `WebApplicationFactory`, replaces the upstream HTTP client with a stub, and covers admin authentication, endpoint/model/key management, the OpenAI-compatible relay (including SSE streaming) and usage accounting.
+- `src/LMMentor.Backend.IntegrationTests` boots the real application in memory with `WebApplicationFactory`, replaces the upstream HTTP client with a stub, and covers admin authentication, endpoint/model/key management, the public relay in both formats (OpenAI and Anthropic, including SSE streaming) and usage accounting.
 - `src/LMMentor.AdminUI/src/**/*.test.tsx` renders the real pages with their providers and intercepts the admin API with [MSW](https://mswjs.io/), covering login, key management, settings and the HTTP client contract.
 - `src/LMMentor.AdminUI/e2e` starts the backend with a throwaway database, reads the bootstrap credentials it prints, and smoke-tests the served SPA in Chromium: login, dashboard navigation and the protected `/v1` relay.
 - No test reaches the network or the real database: every run creates its own temporary `.db` file and fake provider.
@@ -224,6 +227,26 @@ The compose file publishes port **6565**. When an upstream provider runs on the 
 LMMentor can emulate the Ollama discovery API expected by the native VS Code BYOK provider. Enable **Settings → Ollama compatibility** in the admin UI to expose `GET /api/version`, `GET /api/tags`, and `POST /api/show`; enabled public models are then discovered automatically by VS Code.
 
 In **Manage Language Models** in VS Code, add an **Ollama** provider and set its URL to `http://localhost:6565` (without `/v1`). The native provider has no API-key field. Consequently, compatibility mode makes the public `/v1` relay accept any API key, including no key. Keep it disabled for internet-accessible deployments.
+
+---
+
+## 🧩 Using Claude Code with LMMentor
+
+Claude Code speaks only the Anthropic Messages API, and LMMentor exposes it natively — so you can point it at your curated gateway instead of (or alongside) a direct Anthropic subscription:
+
+1. In the admin UI, create an endpoint of type **Anthropic (Claude)** with base URL `https://api.anthropic.com` and your `sk-ant-...` token, then enable the models you want to expose (aliases become the model names Claude Code sees).
+2. Create an API key (`sk-lm-...`) scoped to those models.
+3. Point Claude Code at LMMentor:
+
+   ```bash
+   export ANTHROPIC_BASE_URL=http://localhost:6565
+   export ANTHROPIC_AUTH_TOKEN=sk-lm-your…-key
+   claude
+   ```
+
+LMMentor then handles the rest: it discovers models via `GET /v1/models` (Anthropic shape, detected by the `anthropic-version` header), rewrites your public aliases to the real upstream model ids, forwards requests with the upstream token and API version, passes SSE streams through untouched (including the keep-alive pings Claude Code relies on), and records usage per request.
+
+The gateway is format-agnostic in both directions: an Anthropic client can also reach any OpenAI-compatible upstream (requests, responses and streams are translated), and an OpenAI client can reach Claude through `/v1/chat/completions`. Known v1 limitations of the translation path are documented in [IDEA.md](IDEA.md#known-limitations-of-format-translation).
 
 ---
 

@@ -12,6 +12,10 @@ public class RelayApiTests
     private const string UpstreamModelsUrl = "http://upstream.test/v1/models";
     private const string UpstreamChatUrl = "http://upstream.test/v1/chat/completions";
 
+    private const string AnthropicUpstreamUrl = "http://anthropic.test";
+    private const string AnthropicModelsUrl = "http://anthropic.test/v1/models?limit=1000";
+    private const string AnthropicMessagesUrl = "http://anthropic.test/v1/messages";
+
     [Fact]
     public async Task ChatCompletions_RelaysTheRequestAndRecordsUsage()
     {
@@ -173,6 +177,171 @@ public class RelayApiTests
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/v1/models")).StatusCode);
     }
 
+    // ==================== /v1/messages (formato Anthropic, ex.: Claude Code) ====================
+
+    [Fact]
+    public async Task Messages_PassThroughToAnthropicUpstreamAndRecordsUsage()
+    {
+        using var factory = new LMMentorAppFactory();
+        factory.Upstream
+            .RespondJson(AnthropicModelsUrl, """{ "data": [ { "id": "claude-sonnet-4-5", "max_input_tokens": 200000, "max_tokens": 64000 } ] }""")
+            .RespondJson(AnthropicMessagesUrl, """{ "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": [{ "type": "text", "text": "Hello!" }], "stop_reason": "end_turn", "usage": { "input_tokens": 25, "output_tokens": 15 } }""");
+
+        var admin = await factory.CreateAdminClientAsync();
+        var modelId = await PublishAnthropicModelAsync(admin, alias: "fast");
+        var client = CreateBearerClient(factory, await CreateKeyAsync(admin, allowedModelIds: null));
+
+        var response = await client.PostAsJsonAsync("/v1/messages", new
+        {
+            model = "fast",
+            max_tokens = 1024,
+            messages = new[] { new { role = "user", content = "hi" } },
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var message = await LMMentorAppFactory.ReadJsonAsync(response);
+        Assert.Equal("message", message.GetProperty("type").GetString());
+        Assert.Equal("Hello!", message.GetProperty("content")[0].GetProperty("text").GetString());
+
+        // Alias reescrito + autenticação/version da API Anthropic no upstream.
+        var forwarded = factory.Upstream.Requests.Last();
+        Assert.Equal(AnthropicMessagesUrl, forwarded.Request.RequestUri?.ToString());
+        Assert.Contains("\"claude-sonnet-4-5\"", forwarded.Body);
+        Assert.Equal("sk-ant-test", forwarded.Request.Headers.GetValues("x-api-key").Single());
+        Assert.Equal("2023-06-01", forwarded.Request.Headers.GetValues("anthropic-version").Single());
+
+        var summary = await LMMentorAppFactory.WaitForUsageAsync(admin, s => s.GetProperty("totalTokens").GetInt64() == 40);
+        Assert.Equal(40, summary.GetProperty("totalTokens").GetInt64());
+        Assert.Equal(modelId, summary.GetProperty("byModel").EnumerateArray().First().GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Messages_AcceptsXApiKeyAuthentication()
+    {
+        using var factory = new LMMentorAppFactory();
+        factory.Upstream
+            .RespondJson(AnthropicModelsUrl, """{ "data": [ { "id": "claude-sonnet-4-5" } ] }""")
+            .RespondJson(AnthropicMessagesUrl, """{ "id": "msg_2", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": [], "stop_reason": "end_turn", "usage": { "input_tokens": 1, "output_tokens": 1 } }""");
+
+        var admin = await factory.CreateAdminClientAsync();
+        await PublishAnthropicModelAsync(admin, alias: "fast");
+        var apiKey = await CreateKeyAsync(admin, allowedModelIds: null);
+
+        // Claude Code autentica via x-api-key (ANTHROPIC_API_KEY) ou Bearer (ANTHROPIC_AUTH_TOKEN).
+        var xApiKeyClient = factory.CreateClient();
+        xApiKeyClient.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        var ok = await xApiKeyClient.PostAsJsonAsync("/v1/messages", new { model = "fast", max_tokens = 16, messages = new[] { new { role = "user", content = "hi" } } });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+
+        // Chave inválida: erro no envelope da Anthropic ({ type: "error", error: {...} }).
+        var badClient = factory.CreateClient();
+        badClient.DefaultRequestHeaders.Add("x-api-key", "sk-lm-invalid");
+        var denied = await badClient.PostAsJsonAsync("/v1/messages", new { model = "fast", max_tokens = 16, messages = Array.Empty<object>() });
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        var error = await LMMentorAppFactory.ReadJsonAsync(denied);
+        Assert.Equal("error", error.GetProperty("type").GetString());
+        Assert.Equal("authentication_error", error.GetProperty("error").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Messages_ConvertsToOpenAiUpstream()
+    {
+        using var factory = new LMMentorAppFactory();
+        factory.Upstream
+            .RespondJson(UpstreamModelsUrl, """{ "data": [ { "id": "upstream-fast" } ] }""")
+            .RespondJson(UpstreamChatUrl, """{ "id": "chat-9", "object": "chat.completion", "model": "upstream-fast", "choices": [{ "index": 0, "message": { "role": "assistant", "content": "Sure!" }, "finish_reason": "stop" }], "usage": { "prompt_tokens": 12, "completion_tokens": 8 } }""");
+
+        var admin = await factory.CreateAdminClientAsync();
+        var (modelId, _) = await PublishModelAsync(admin, alias: "fast");
+        var client = CreateBearerClient(factory, await CreateKeyAsync(admin, allowedModelIds: null));
+
+        // Cliente Anthropic falando com upstream OpenAI: conversão nos dois sentidos.
+        var response = await client.PostAsJsonAsync("/v1/messages", new
+        {
+            model = "fast",
+            max_tokens = 512,
+            system = new[] { new { type = "text", text = "You are terse.", cache_control = new { type = "ephemeral" } } },
+            messages = new[] { new { role = "user", content = "hi" } },
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var message = await LMMentorAppFactory.ReadJsonAsync(response);
+        Assert.Equal("message", message.GetProperty("type").GetString());
+        Assert.Equal("Sure!", message.GetProperty("content")[0].GetProperty("text").GetString());
+        Assert.Equal("end_turn", message.GetProperty("stop_reason").GetString());
+
+        // Pedido convertido para OpenAI: system na frente, cache_control fora.
+        var forwarded = factory.Upstream.Requests.Last();
+        Assert.Equal(UpstreamChatUrl, forwarded.Request.RequestUri?.ToString());
+        Assert.Contains("\"role\":\"system\"", forwarded.Body);
+        Assert.DoesNotContain("cache_control", forwarded.Body);
+
+        var summary = await LMMentorAppFactory.WaitForUsageAsync(admin, s => s.GetProperty("totalTokens").GetInt64() == 20);
+        Assert.Equal(20, summary.GetProperty("totalTokens").GetInt64());
+        Assert.Equal(modelId, summary.GetProperty("byModel").EnumerateArray().First().GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Messages_StreamsOpenAiUpstreamAsAnthropicEvents()
+    {
+        using var factory = new LMMentorAppFactory();
+        var sse = "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-fast\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n"
+            + "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-fast\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\n"
+            + "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-fast\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+            + "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream-fast\",\"choices\":[],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":7}}\n\n"
+            + "data: [DONE]\n\n";
+
+        factory.Upstream
+            .RespondJson(UpstreamModelsUrl, """{ "data": [ { "id": "upstream-fast" } ] }""")
+            .Respond(UpstreamChatUrl, HttpStatusCode.OK, sse, "text/event-stream");
+
+        var admin = await factory.CreateAdminClientAsync();
+        await PublishModelAsync(admin, alias: "fast");
+        var client = CreateBearerClient(factory, await CreateKeyAsync(admin, allowedModelIds: null));
+
+        var response = await client.PostAsJsonAsync("/v1/messages", new { model = "fast", max_tokens = 100, stream = true, messages = new[] { new { role = "user", content = "hi" } } });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadAsStringAsync();
+
+        // Eventos Anthropic na ordem protocolar (o Claude Code valida a sequência).
+        Assert.Contains("event: message_start", body);
+        Assert.Contains("\"type\":\"text_delta\"", body);
+        Assert.Contains("event: message_delta", body);
+        Assert.Contains("event: message_stop", body);
+        Assert.True(body.IndexOf("message_start", StringComparison.Ordinal) < body.IndexOf("message_stop", StringComparison.Ordinal));
+
+        var summary = await LMMentorAppFactory.WaitForUsageAsync(admin, s => s.GetProperty("totalTokens").GetInt64() == 37);
+        Assert.Equal(37, summary.GetProperty("totalTokens").GetInt64());
+    }
+
+    [Fact]
+    public async Task Models_DualFormatKeyedByAnthropicVersionHeader()
+    {
+        using var factory = new LMMentorAppFactory();
+        factory.Upstream.RespondJson(UpstreamModelsUrl, """{ "data": [ { "id": "upstream-fast", "context_length": 8192 } ] }""");
+
+        var admin = await factory.CreateAdminClientAsync();
+        await PublishModelAsync(admin, alias: "fast");
+        var client = CreateBearerClient(factory, await CreateKeyAsync(admin, allowedModelIds: null));
+
+        // Sem o header: formato OpenAI histórico (imutável para clientes existentes).
+        var openAi = await LMMentorAppFactory.ReadJsonAsync(await client.GetAsync("/v1/models"));
+        var openAiModel = Assert.Single(openAi.GetProperty("data").EnumerateArray().ToList());
+        Assert.Equal("fast", openAiModel.GetProperty("id").GetString());
+        Assert.Equal(8192, openAiModel.GetProperty("context_length").GetInt32());
+
+        // Com o header (descoberta do Claude Code): formato Anthropic ModelInfo.
+        var anthropicRequest = new HttpRequestMessage(HttpMethod.Get, "/v1/models");
+        anthropicRequest.Headers.Add("anthropic-version", "2023-06-01");
+        anthropicRequest.Headers.Authorization = client.DefaultRequestHeaders.Authorization;
+        var anthropic = await LMMentorAppFactory.ReadJsonAsync(await client.SendAsync(anthropicRequest));
+        var anthropicModel = Assert.Single(anthropic.GetProperty("data").EnumerateArray().ToList());
+        Assert.Equal("fast", anthropicModel.GetProperty("id").GetString());
+        Assert.Equal("model", anthropicModel.GetProperty("type").GetString());
+    }
+
     private static HttpClient CreateBearerClient(LMMentorAppFactory factory, string apiKey)
     {
         var client = factory.CreateClient();
@@ -199,6 +368,22 @@ public class RelayApiTests
         await admin.PatchAsJsonAsync($"/api/models/{modelId}", new { displayName = alias });
         await admin.PatchAsJsonAsync($"/api/models/{modelId}/enabled", new { enabled = true });
         return (modelId, endpointId);
+    }
+
+    /// <summary>Cria um endpoint Anthropic e publica o modelo descoberto com um alias.</summary>
+    private static async Task<string> PublishAnthropicModelAsync(HttpClient admin, string alias)
+    {
+        var created = await LMMentorAppFactory.ReadJsonAsync(await admin.PostAsJsonAsync(
+            "/api/endpoints",
+            new { name = "Anthropic", type = "anthropic", url = AnthropicUpstreamUrl, accessToken = "sk-ant-test" }));
+        var endpointId = created.GetProperty("id").GetString()!;
+
+        var models = await LMMentorAppFactory.ReadJsonAsync(await admin.GetAsync($"/api/endpoints/{endpointId}/models"));
+        var modelId = models.EnumerateArray().First().GetProperty("id").GetString()!;
+
+        await admin.PatchAsJsonAsync($"/api/models/{modelId}", new { displayName = alias });
+        await admin.PatchAsJsonAsync($"/api/models/{modelId}/enabled", new { enabled = true });
+        return modelId;
     }
 
     private static async Task<string> CreateKeyAsync(HttpClient admin, List<string>? allowedModelIds)

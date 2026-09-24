@@ -9,6 +9,7 @@ export type EndpointType =
     | 'lmstudio'
     | 'llamacpp'
     | 'unsloth'
+    | 'anthropic'
     | 'custom';
 
 export interface ApiEndpoint
@@ -31,6 +32,8 @@ export interface Model
     // Nome exposto pela API pública. Vazio = usa o nome upstream.
     displayName: string;
     contextSize: number | null;
+    // Teto de saída do modelo (ex.: max_tokens da listagem Anthropic), se conhecido.
+    maxOutputTokens: number | null;
     enabled: boolean;
     blockedWindows: AvailabilityWindow[];
 }

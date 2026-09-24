@@ -5,15 +5,16 @@ using LMMentor.Backend.Data.Entities;
 namespace LMMentor.Backend.Data;
 
 /// <summary>Modelo retornado pela descoberta em um endpoint upstream.</summary>
-public sealed record DiscoveredModel(string UpstreamModelId, int? ContextSize);
+public sealed record DiscoveredModel(string UpstreamModelId, int? ContextSize = null, int? MaxOutputTokens = null);
 
 /// <summary>
 /// Descobre os modelos disponíveis em um endpoint chamando a API do provedor.
 /// OpenAI-compatible (openai/deepseek/groq/vllm/lmstudio/llamacpp/unsloth/custom) usa GET {url}/models;
-/// Ollama usa GET {url}/api/tags. Cada provedor informa o contexto de um jeito — vLLM em
-/// max_model_len, Groq em context_window, LM Studio no REST nativo (/api/v1/models),
-/// llama-server e Unsloth Studio no /props, Ollama no POST /api/show — e o valor é reavaliado
-/// a cada descoberta, pois o modelo pode ser recarregado com outro tamanho.
+/// Ollama usa GET {url}/api/tags; Anthropic usa GET {root}/v1/models com x-api-key + anthropic-version.
+/// Cada provedor informa o contexto de um jeito — vLLM em max_model_len, Groq em context_window,
+/// LM Studio no REST nativo (/api/v1/models), llama-server e Unsloth Studio no /props, Ollama no
+/// POST /api/show, Anthropic em max_input_tokens (e o teto de saída em max_tokens) — e o valor é
+/// reavaliado a cada descoberta, pois o modelo pode ser recarregado com outro tamanho.
 /// </summary>
 public sealed class ModelDiscoveryService
 {
@@ -65,6 +66,11 @@ public sealed class ModelDiscoveryService
             if (IsType(endpoint, "ollama"))
             {
                 return await DiscoverOllamaAsync(client, endpoint, ct);
+            }
+
+            if (IsType(endpoint, "anthropic"))
+            {
+                return await DiscoverAnthropicAsync(client, endpoint, ct);
             }
 
             var (online, models) = await DiscoverOpenAiCompatibleAsync(client, endpoint, ct);
@@ -215,6 +221,69 @@ public sealed class ModelDiscoveryService
         }
 
         return (true, withContext);
+    }
+
+    /// <summary>
+    /// Anthropic: GET {root}/v1/models com os headers x-api-key e anthropic-version. O catálogo
+    /// é paginado; limit=1000 (o máximo aceito) cobre o catálogo atual em uma página e o cursor
+    /// after_id segue as páginas seguintes se aparecerem mais modelos. O contexto vem de
+    /// max_input_tokens e o teto de saída de max_tokens (ambos podem ser nulos).
+    /// </summary>
+    private static async Task<(bool online, List<DiscoveredModel> models)> DiscoverAnthropicAsync(
+        HttpClient client, ApiEndpointEntity endpoint, CancellationToken ct)
+    {
+        var root = AnthropicAdapter.V1Root(endpoint.Url);
+        var models = new List<DiscoveredModel>();
+        string? afterId = null;
+
+        // Teto de 10 páginas: segurança contra loops de paginação malformados.
+        for (var page = 0; page < 10; page++)
+        {
+            var url = $"{root}/models?limit=1000" + (afterId is null ? "" : $"&after_id={Uri.EscapeDataString(afterId)}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrEmpty(endpoint.AccessToken))
+            {
+                request.Headers.TryAddWithoutValidation("x-api-key", endpoint.AccessToken);
+            }
+
+            request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicAdapter.ApiVersion);
+
+            using var response = await client.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                return (false, []);
+            }
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+            var rootEl = doc.RootElement;
+
+            if (rootEl.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in data.EnumerateArray())
+                {
+                    var id = ReadString(item, "id");
+                    if (string.IsNullOrEmpty(id))
+                    {
+                        continue;
+                    }
+
+                    models.Add(new DiscoveredModel(
+                        id!,
+                        ReadPositiveInt(item, "max_input_tokens"),
+                        ReadPositiveInt(item, "max_tokens")));
+                }
+            }
+
+            var hasMore = rootEl.TryGetProperty("has_more", out var hm) && hm.ValueKind == JsonValueKind.True;
+            afterId = ReadString(rootEl, "last_id") ?? ReadString(rootEl, "after_id");
+            if (!hasMore || afterId is null)
+            {
+                break;
+            }
+        }
+
+        return (true, models);
     }
 
     /// <summary>

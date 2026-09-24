@@ -17,6 +17,12 @@ public sealed class ModelEntity
     /// <summary>Tamanho de contexto informado pelo provedor, se disponível.</summary>
     public int? ContextSize { get; set; }
 
+    /// <summary>
+    /// Teto de tokens de saída do modelo (ex.: max_tokens da listagem Anthropic). Usado como
+    /// padrão quando um cliente OpenAI não informa max_tokens em um relay para a Anthropic.
+    /// </summary>
+    public int? MaxOutputTokens { get; set; }
+
     /// <summary>Modelo exposto na API pública. Falso por padrão: a habilitação é opt-in.</summary>
     public bool Enabled { get; set; }
 

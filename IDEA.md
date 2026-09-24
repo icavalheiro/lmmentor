@@ -87,14 +87,16 @@ lmmentor/
 │   │   ├── Admin/
 │   │   │   ├── AuthEndpoints.cs    # Login/logout/me + first-run credential bootstrap
 │   │   │   ├── ApiEndpoints.cs     # /api admin API (endpoints, models, keys, usage)
-│   │   │   └── RelayEndpoints.cs   # Public OpenAI-compatible /v1/* relay
+│   │   │   └── RelayEndpoints.cs   # Public /v1/* relay (OpenAI + Anthropic Messages)
 │   │   ├── Data/                   # LiteDB services + entities
 │   │   │   ├── LMMentorDb.cs       # DB bootstrap (LMMENTOR_DB_PATH, default ./lmmentor.db)
 │   │   │   ├── EndpointService.cs  # Endpoint CRUD + model sync on refresh
-│   │   │   ├── ModelDiscoveryService.cs  # OpenAI-compatible /models + Ollama /api/tags
+│   │   │   ├── ModelDiscoveryService.cs  # OpenAI-compatible /models + Ollama /api/tags + Anthropic /v1/models (paginated)
 │   │   │   ├── ApiKeyService.cs    # sk-lm-... key creation/revocation (SHA-256 hash at rest)
 │   │   │   ├── AdminCredentialService.cs / PasswordHasher.cs
-│   │   │   ├── RelayService.cs     # Model resolution + upstream relay (SSE pass-through)
+│   │   │   ├── RelayService.cs     # Model resolution + upstream relay (SSE pass-through, format routing)
+│   │   │   ├── AnthropicAdapter.cs # OpenAI ⇄ Anthropic request/response mapping (non-streaming)
+│   │   │   ├── SseRelayStreams.cs  # SSE converters: Anthropic→OpenAI, OpenAI→Anthropic, pass-through w/ usage capture
 │   │   │   ├── UsageLogger.cs      # Bounded-channel queue, background persistence
 │   │   │   ├── UsageService.cs     # Dashboard aggregation over a day window
 │   │   │   └── Entities/           # ApiEndpointEntity, ModelEntity, ApiKeyEntity, ...
@@ -117,8 +119,8 @@ lmmentor/
 
 | Collection | Purpose |
 |---|---|
-| `api_endpoints` | name, type (openai/deepseek/ollama/groq/vllm/lmstudio/llamacpp/unsloth/custom), url, access_token, status (online/offline), last_checked_at, created_at |
-| `models` | endpoint_id, upstream_model_id, display_name (empty = upstream name), context_size, enabled, created_at |
+| `api_endpoints` | name, type (openai/deepseek/ollama/groq/vllm/lmstudio/llamacpp/unsloth/anthropic/custom), url, access_token, status (online/offline), last_checked_at, created_at |
+| `models` | endpoint_id, upstream_model_id, display_name (empty = upstream name), context_size, max_output_tokens (nullable; e.g. Anthropic's per-model output cap), enabled, created_at |
 | `api_keys` | SHA-256 hash of the key, name, allowed model ids (null = all), created_at, revoked_at |
 | `usage_log` | timestamp, model_id, api_key_id, prompt_tokens, completion_tokens, total_tokens, success — one row per relayed request; dashboard aggregates on read over a day window |
 | `admin_credentials` | hashed admin password (bootstrap) |
@@ -144,7 +146,16 @@ lmmentor/
 - Load balancing / failover across providers for the *same* model (routing is deterministic: model → provider).
 - Prompt management, fine-tuning, embeddings passthrough beyond basic proxying.
 - Multi-tenant SaaS features; this is a single-admin self-hosted tool.
-- Non-OpenAI upstream protocols (Anthropic-native, etc.) — adapters can come later.
+
+## Known Limitations of Format Translation
+
+The OpenAI ⇄ Anthropic translation covers the common request/response/stream shapes (text, tools/tool calls, images, usage, stop reasons) with these deliberate v1 trade-offs:
+
+- **No `POST /v1/messages/count_tokens`**: the endpoint is not implemented; clients that call it get a 404. Claude Code tolerates this (it treats counting as best-effort).
+- **Synthesized `message_start` carries `input_tokens: 0`** on OpenAI→Anthropic streams: OpenAI only reports prompt tokens in the final chunk, so the real value is unknown until the stream ends. The internal usage log still records the true totals.
+- **Anthropic-only fields are dropped when converting to an OpenAI upstream**: `cache_control`, `thinking`, `context_management` and other beta-only request fields have no OpenAI equivalent and are not forwarded (they remain intact on Anthropic→Anthropic pass-through).
+- **No synthetic keep-alive pings** for non-Anthropic upstreams: Anthropic emits `ping` events that Claude Code uses to detect stalled streams; when the upstream is OpenAI-compatible, LMMentor does not fabricate them (a long tool execution can look like a stall to the client).
+- **`tool_use.input` objects are re-serialized compactly** into OpenAI `arguments` strings; whitespace from the source document is normalized away.
 
 ## Milestones
 
@@ -153,3 +164,4 @@ lmmentor/
 3. ~~**M3 — Public API**~~ ✅ Key-gated `/v1/models` + `/v1/chat/completions` (incl. SSE streaming pass-through) routed to upstreams.
 4. ~~**M4 — Metrics**~~ ✅ Per-call logging and dashboard aggregation (daily trend, per-model/per-key breakdowns, avg tokens/sec over the window), with date filtering done in LiteDB.
 5. **M5 — Ongoing Hardening**: latency/memory profiling of the relay path, automated tests, release artifacts, and CI automation. Endpoint editing remains out of scope.
+6. ~~**M6 — Anthropic Gateway**~~ ✅ `anthropic` endpoint type (paginated `/v1/models` discovery with `max_input_tokens`/`max_tokens`), Anthropic Messages ingress (`POST /v1/messages`, auth via `Authorization: Bearer` or `x-api-key`), dual-format `GET /v1/models` keyed on the `anthropic-version` header, and bidirectional OpenAI ⇄ Anthropic translation (requests, responses and SSE streams) across all four client/upstream format combinations.
