@@ -10,14 +10,27 @@ export const HARNESSES = [
 
 export type Harness = typeof HARNESSES[number]['value'];
 
+function assumeOutputTokens ( context: number ): number
+{
+    if ( context > 200000 ) return 131072;
+    return Math.min( 32768, Math.floor( context / 2 ) );
+}
+
 export function getExportModels ( models: Model[] )
 {
     // Exporta o catálogo habilitado, inclusive modelos temporariamente bloqueados por horário.
-    return models.filter( ( model ) => model.enabled ).map( ( model ) => ( {
-        id: model.displayName.trim() || model.upstreamModelId,
-        context: model.contextSize && model.contextSize > 0 ? model.contextSize : undefined,
-        output: model.maxOutputTokens && model.maxOutputTokens > 0 ? model.maxOutputTokens : undefined,
-    } ) );
+    return models.filter( ( model ) => model.enabled ).map( ( model ) =>
+    {
+        const context = model.contextSize && model.contextSize > 0 ? model.contextSize : undefined;
+        const output = model.maxOutputTokens && model.maxOutputTokens > 0
+            ? model.maxOutputTokens
+            : context === undefined ? undefined : assumeOutputTokens( context );
+        return {
+            id: model.displayName.trim() || model.upstreamModelId,
+            context,
+            output,
+        };
+    } );
 }
 
 export function exportSchema ( harness: Harness, models: Model[], origin: string ): string

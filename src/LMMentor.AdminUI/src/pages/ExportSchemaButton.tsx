@@ -54,7 +54,7 @@ export function ExportSchemaButton ()
                 setHarness( null );
                 setCopyStatus( '' );
                 setOpened( true );
-            } }>Exporta schema</Button>
+            } }>Export schema</Button>
             <Modal opened={ opened } onClose={ () => setOpened( false ) }
                 title={ selectedHarness ? `Schema JSON — ${ selectedHarness.label }` : 'Para qual harness deseja exportar?' }
                 size={ harness ? 'xl' : 'sm' } onTransitionEnd={ () => { if ( harness && ready ) selectText(); } }>

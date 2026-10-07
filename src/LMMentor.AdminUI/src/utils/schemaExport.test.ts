@@ -6,6 +6,9 @@ const models: Model[] = [
     { id: 'internal-id', endpointId: 'endpoint', upstreamModelId: 'upstream/model', displayName: 'public-alias', contextSize: 65536, maxOutputTokens: 8192, enabled: true, blockedWindows: [] },
     { id: 'other-id', endpointId: 'endpoint', upstreamModelId: 'unknown-limits', displayName: '', contextSize: null, maxOutputTokens: null, enabled: true, blockedWindows: [] },
     { id: 'disabled-id', endpointId: 'endpoint', upstreamModelId: 'disabled-model', displayName: '', contextSize: 4096, maxOutputTokens: 1024, enabled: false, blockedWindows: [] },
+    { id: 'big-id', endpointId: 'endpoint', upstreamModelId: 'assumed-big', displayName: '', contextSize: 262144, maxOutputTokens: null, enabled: true, blockedWindows: [] },
+    { id: 'mid-id', endpointId: 'endpoint', upstreamModelId: 'assumed-mid', displayName: '', contextSize: 65536, maxOutputTokens: null, enabled: true, blockedWindows: [] },
+    { id: 'small-id', endpointId: 'endpoint', upstreamModelId: 'assumed-small', displayName: '', contextSize: 8192, maxOutputTokens: null, enabled: true, blockedWindows: [] },
 ];
 const origin = 'https://lmmentor.example';
 
@@ -26,6 +29,14 @@ describe( 'schema export contracts', () =>
         expect( provider.options ).toEqual( { baseURL: `${ origin }/v1`, apiKey: '{env:LMMENTOR_API_KEY}' } );
         expect( provider.models['public-alias'].limit ).toEqual( { context: 65536, output: 8192 } );
         expect( provider.models['unknown-limits'] ).not.toHaveProperty( 'limit' );
+    } );
+
+    it( 'assumes an output limit from the context window when the model omits it', () =>
+    {
+        const provider = JSON.parse( exportSchema( 'opencode', models, origin ) ).provider.lmmentor;
+        expect( provider.models['assumed-big'].limit ).toEqual( { context: 262144, output: 131072 } );
+        expect( provider.models['assumed-mid'].limit ).toEqual( { context: 65536, output: 32768 } );
+        expect( provider.models['assumed-small'].limit ).toEqual( { context: 8192, output: 4096 } );
     } );
 
     it( 'preserves context and output separately for pi and DeepSeek', () =>

@@ -14,7 +14,7 @@ describe( 'ExportSchemaButton', () =>
             enabled: true, contextSize: 32768, maxOutputTokens: 4096,
         } ] ) ) );
         const { user } = renderWithProviders( <ExportSchemaButton /> );
-        await user.click( screen.getByRole( 'button', { name: 'Exporta schema' } ) );
+        await user.click( screen.getByRole( 'button', { name: 'Export schema' } ) );
         await screen.findByRole( 'button', { name: 'OpenCode' } );
         for ( const name of [ 'OpenCode', 'DeepSeek Harness', 'VS Code', 'Claude', 'pi.dev' ] )
             expect( screen.getByRole( 'button', { name } ) ).toBeInTheDocument();
@@ -39,7 +39,7 @@ describe( 'ExportSchemaButton', () =>
     {
         server.use( http.get( '/api/models', () => HttpResponse.json( [] ) ) );
         const { user } = renderWithProviders( <ExportSchemaButton /> );
-        await user.click( screen.getByRole( 'button', { name: 'Exporta schema' } ) );
+        await user.click( screen.getByRole( 'button', { name: 'Export schema' } ) );
         await user.click( await screen.findByRole( 'button', { name: 'VS Code' } ) );
         expect( await screen.findByText( /Nenhum modelo habilitado/ ) ).toBeInTheDocument();
         expect( screen.getByRole( 'button', { name: 'Copiar JSON' } ) ).toBeDisabled();
@@ -49,7 +49,7 @@ describe( 'ExportSchemaButton', () =>
     {
         server.use( http.get( '/api/models', () => HttpResponse.json( { error: 'Unavailable' }, { status: 500 } ) ) );
         const { user } = renderWithProviders( <ExportSchemaButton /> );
-        await user.click( screen.getByRole( 'button', { name: 'Exporta schema' } ) );
+        await user.click( screen.getByRole( 'button', { name: 'Export schema' } ) );
         await user.click( await screen.findByRole( 'button', { name: 'Claude' } ) );
         expect( await screen.findByText( 'Não foi possível carregar os modelos' ) ).toBeInTheDocument();
         expect( screen.getByRole( 'button', { name: 'Copiar JSON' } ) ).toBeDisabled();
