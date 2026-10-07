@@ -78,6 +78,9 @@ flowchart LR
    - Generate, scope (restricted to specific models), revoke, or delete `sk-lm-...` bearer keys for client applications. Keys are stored hashed; the full value is shown only once at creation.
 7. **Zero-Config First Run Bootstrap**
    - Automatically generates secure admin credentials on first startup and outputs them to the console.
+8. **Harness Configuration Export**
+   - Use **Exporta schema** in the admin header to export all enabled models for OpenCode, DeepSeek Harness, VS Code, Claude Code, or pi.dev. The JSON is selected automatically and includes public model IDs and known context/output limits, using the current gateway URL.
+   - The panel identifies the destination file and credential setup. Unknown limits are omitted. Claude Code exports independent settings profiles per model because its context/output overrides apply per session; save a profile's `settings` object and launch with `claude --settings path/to/settings.json`.
 
 ---
 

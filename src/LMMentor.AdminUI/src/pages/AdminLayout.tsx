@@ -3,6 +3,7 @@ import { AppShell, Button, Group, Stack, Text } from '@mantine/core';
 import { IconGauge, IconKey, IconServer, IconSettings } from '@tabler/icons-react';
 import { getCurrentUser, logout, type AuthUser } from '../api/auth';
 import { useEffect, useState } from 'react';
+import { ExportSchemaButton } from './ExportSchemaButton';
 
 const NAV_ITEMS = [
     { to: '/', label: 'Dashboard', icon: IconGauge, end: true },
@@ -33,6 +34,7 @@ export function AdminLayout ()
                     <Text fw={ 700 } size="lg">LMMentor</Text>
                     <Group gap="md">
                         { user && <Text size="sm">{ user.username }</Text> }
+                        <ExportSchemaButton />
                         <Button variant="default" size="xs" onClick={ handleLogout }>Sign out</Button>
                     </Group>
                 </Group>
