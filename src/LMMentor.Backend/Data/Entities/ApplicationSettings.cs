@@ -7,4 +7,7 @@ public sealed class ApplicationSettings
 
     /// <summary>Habilita os endpoints de descoberta Ollama e desabilita a validação de chaves no relay público.</summary>
     public bool OllamaCompatibilityEnabled { get; set; }
+
+    /// <summary>TTL em segundos para verificação upstream de modelos (default 300).</summary>
+    public int ModelVerificationTtlSeconds { get; set; } = 300;
 }

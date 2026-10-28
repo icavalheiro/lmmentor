@@ -3,7 +3,7 @@ using LMMentor.Backend.Data.Entities;
 namespace LMMentor.Backend.Data;
 
 /// <summary>DTO das configurações globais expostas ao painel de administração.</summary>
-public sealed record ApplicationSettingsDto(bool OllamaCompatibilityEnabled);
+public sealed record ApplicationSettingsDto(bool OllamaCompatibilityEnabled, int ModelVerificationTtlSeconds);
 
 /// <summary>Gerencia as configurações globais persistidas do LMMentor.</summary>
 public sealed class ApplicationSettingsService
@@ -25,7 +25,9 @@ public sealed class ApplicationSettingsService
     public ApplicationSettingsDto Get()
     {
         var settings = GetCollection().FindById(SettingsId);
-        return new ApplicationSettingsDto(settings?.OllamaCompatibilityEnabled ?? false);
+        return new ApplicationSettingsDto(
+            settings?.OllamaCompatibilityEnabled ?? false,
+            settings?.ModelVerificationTtlSeconds ?? 300);
     }
 
     /// <summary>Atualiza a compatibilidade da API Ollama.</summary>
@@ -41,7 +43,23 @@ public sealed class ApplicationSettingsService
 
         settings.OllamaCompatibilityEnabled = enabled;
         collection.Update(settings);
-        return new ApplicationSettingsDto(settings.OllamaCompatibilityEnabled);
+        return new ApplicationSettingsDto(settings.OllamaCompatibilityEnabled, settings.ModelVerificationTtlSeconds);
+    }
+
+    /// <summary>Atualiza o TTL de verificação upstream de modelos.</summary>
+    public ApplicationSettingsDto SetModelVerificationTtlSeconds(int ttlSeconds)
+    {
+        var collection = GetCollection();
+        var settings = collection.FindById(SettingsId);
+        if (settings is null)
+        {
+            settings = new ApplicationSettings { Id = SettingsId };
+            collection.Insert(settings);
+        }
+
+        settings.ModelVerificationTtlSeconds = ttlSeconds;
+        collection.Update(settings);
+        return new ApplicationSettingsDto(settings.OllamaCompatibilityEnabled, settings.ModelVerificationTtlSeconds);
     }
 
     private LiteDB.ILiteCollection<ApplicationSettings> GetCollection() =>

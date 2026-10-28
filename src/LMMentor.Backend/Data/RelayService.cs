@@ -65,10 +65,29 @@ public sealed class RelayService
     }
 
     /// <summary>Modelos habilitados e permitidos pela chave, no formato da lista do OpenAI.</summary>
-    public object ListModels(string? apiKeyValue)
+    public async Task<object> ListModels(string? apiKeyValue, CancellationToken ct)
     {
         var key = ResolveKey(apiKeyValue);
         var bypassesAuthentication = _settings.OllamaCompatibilityEnabled;
+
+        // Garante que os dados de cada endpoint com modelos habilitados estão atualizados.
+        var enabledEndpoints = _endpoints.GetAllModelDtos()
+            .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
+            .Select(m => m.EndpointId)
+            .Distinct();
+
+        foreach (var endpointId in enabledEndpoints)
+        {
+            try
+            {
+                await _endpoints.EnsureFreshAsync(endpointId, ct);
+            }
+            catch
+            {
+                // Upstream offline ou timeout: mantém dados cacheados sem erro.
+            }
+        }
+
         var models = _endpoints.GetAllModelDtos()
             .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
             .Select(m => new

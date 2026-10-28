@@ -18,14 +18,15 @@ public static class RelayEndpoints
         // Lista os modelos habilitados (nome exposto). O formato depende do header
         // anthropic-version: presente → Anthropic ModelInfo (descoberta do Claude Code);
         // ausente → OpenAI (formato histórico, imutável para clientes existentes).
-        group.MapGet("/models", (HttpRequest request, RelayService relay) =>
+        group.MapGet("/models", async (HttpRequest request, HttpResponse response, RelayService relay, CancellationToken ct) =>
         {
             var apiKeyValue = ExtractApiKey(request);
 
             try
             {
                 var isAnthropicClient = request.Headers.ContainsKey("anthropic-version");
-                return Results.Json(isAnthropicClient ? relay.ListAnthropicModels(apiKeyValue) : relay.ListModels(apiKeyValue));
+                var models = isAnthropicClient ? relay.ListAnthropicModels(apiKeyValue) : await relay.ListModels(apiKeyValue, ct);
+                return Results.Json(models);
             }
             catch (RelayException ex)
             {

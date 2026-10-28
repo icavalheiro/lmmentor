@@ -13,7 +13,10 @@ public static class DataExtensions
         builder.Services.AddSingleton<AdminCredentialService>();
         builder.Services.AddSingleton<ApplicationSettingsService>();
         builder.Services.AddSingleton<ModelDiscoveryService>();
-        builder.Services.AddSingleton<EndpointService>();
+        builder.Services.AddSingleton<EndpointService>(_ => new EndpointService(
+            _.GetRequiredService<LMMentorDb>(),
+            _.GetRequiredService<ModelDiscoveryService>(),
+            _.GetRequiredService<ApplicationSettingsService>()));
         builder.Services.AddSingleton<ApiKeyService>();
         // IAsyncDisposable: o host drena a fila de uso no shutdown.
         builder.Services.AddSingleton<UsageLogger>();

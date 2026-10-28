@@ -1,5 +1,6 @@
 using LiteDB;
 using Microsoft.AspNetCore.Http;
+using System.Collections;
 using LMMentor.Backend.Data.Entities;
 
 namespace LMMentor.Backend.Data;
@@ -35,13 +36,23 @@ public sealed class EndpointService
     private readonly ModelDiscoveryService _discovery;
     private readonly ILiteCollection<ApiEndpointEntity> _endpoints;
     private readonly ILiteCollection<ModelEntity> _models;
+    private readonly ApplicationSettingsService? _settings;
+
+    /// <summary>Cache TTL por endpoint: (endpointId, lastCheckedAt). Usado para evitar double-probing.</summary>
+    private readonly Dictionary<string, DateTime> _verificationCache = new();
+    private readonly object _cacheLock = new();
 
     public EndpointService(LMMentorDb db, ModelDiscoveryService discovery)
+        : this(db, discovery, null)
+    { }
+
+    public EndpointService(LMMentorDb db, ModelDiscoveryService discovery, ApplicationSettingsService? settings)
     {
         _db = db;
         _discovery = discovery;
         _endpoints = db.Db.GetCollection<ApiEndpointEntity>(EndpointsCollection);
         _models = db.Db.GetCollection<ModelEntity>(ModelsCollection);
+        _settings = settings;
     }
 
     public IReadOnlyList<ApiEndpointEntity> GetAll() =>
@@ -84,12 +95,47 @@ public sealed class EndpointService
             .OrderBy(m => m.UpstreamModelId)
             .ToList();
 
+    /// <summary>Retorna modelos do endpoint com verificação upstream se o TTL expirou.</summary>
+    public async Task<IReadOnlyList<ModelDto>> GetModelsByEndpointWithFreshAsync(string endpointId, CancellationToken ct)
+    {
+        try
+        {
+            await EnsureFreshAsync(endpointId, ct);
+        }
+        catch
+        {
+            // Upstream falhou: retorna dados do banco sem erro.
+        }
+
+        return GetModelsByEndpoint(endpointId);
+    }
+
     /// <summary>Todos os modelos (usado na validação de nomes únicos entre endpoints).</summary>
     public IReadOnlyList<ModelEntity> GetAllModels() => _models.FindAll().ToList();
 
     /// <summary>Todos os modelos como DTO (para a UI listar/consultar em qualquer página).</summary>
     public IReadOnlyList<ModelDto> GetAllModelDtos() =>
         _models.FindAll().Select(ToDto).OrderBy(m => m.UpstreamModelId).ToList();
+
+    /// <summary>Retorna todos os modelos com verificação upstream por endpoint se o TTL expirou.</summary>
+    public async Task<IReadOnlyList<ModelDto>> GetAllModelDtosWithFreshAsync(CancellationToken ct)
+    {
+        // Garante que os dados de todos os endpoints estão atualizados.
+        var allEndpoints = _endpoints.FindAll().Select(e => e.Id).Distinct();
+        foreach (var endpointId in allEndpoints)
+        {
+            try
+            {
+                await EnsureFreshAsync(endpointId, ct);
+            }
+            catch
+            {
+                // Upstream falhou para este endpoint: mantém dados cacheados sem erro.
+            }
+        }
+
+        return GetAllModelDtos();
+    }
 
     /// <summary>Cria um endpoint, dispara a descoberta e persiste os modelos encontrados.</summary>
     public async Task<ApiEndpointEntity> CreateAsync(
@@ -200,6 +246,33 @@ public sealed class EndpointService
         endpoint.LastCheckedAt = DateTime.UtcNow;
         _endpoints.Update(endpoint);
         return Normalize(endpoint);
+    }
+
+    /// <summary>
+    /// Garante que os dados do endpoint estão atualizados via upstream. Se o TTL expirou,
+    /// dispara RefreshAsync para sonda o provedor e atualizar o banco. Usa cache em memória
+    /// com lock por endpointId para evitar double-probing simultâneo.
+    /// </summary>
+    public async Task EnsureFreshAsync(string endpointId, CancellationToken ct)
+    {
+        var ttlSeconds = _settings is not null ? _settings.Get().ModelVerificationTtlSeconds : 300;
+        var now = DateTime.UtcNow;
+
+        // Verifica se o TTL expirou (ou se não há entrada no cache).
+        lock (_cacheLock)
+        {
+            var lastChecked = _verificationCache.GetValueOrDefault(endpointId, default);
+            if (now - lastChecked < TimeSpan.FromSeconds(ttlSeconds))
+            {
+                return; // Ainda dentro do TTL, nada a fazer.
+            }
+
+            // Marca como verificando para evitar double-probing.
+            _verificationCache[endpointId] = now;
+        }
+
+        // Fora do lock: dispara o probe upstream.
+        await RefreshAsync(endpointId, ct);
     }
 
     /// <summary>

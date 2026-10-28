@@ -53,11 +53,12 @@ public static class ApiEndpoints
             await endpoints.RefreshAsync(id, ct) is { } endpoint ? Results.Ok(endpoint) : Results.NotFound());
 
         // Modelos de um endpoint.
-        group.MapGet("/endpoints/{id}/models", (string id, EndpointService endpoints) =>
-            Results.Ok(endpoints.GetModelsByEndpoint(id)));
+        group.MapGet("/endpoints/{id}/models", async (string id, EndpointService endpoints, CancellationToken ct) =>
+            Results.Ok(await endpoints.GetModelsByEndpointWithFreshAsync(id, ct)));
 
         // Todos os modelos (para a UI listar/consultar em qualquer página).
-        group.MapGet("/models", (EndpointService endpoints) => Results.Ok(endpoints.GetAllModelDtos()));
+        group.MapGet("/models", async (EndpointService endpoints, CancellationToken ct) =>
+            Results.Ok(await endpoints.GetAllModelDtosWithFreshAsync(ct)));
 
         group.MapPatch("/models/{id}", (string id, RenameModelRequest request, EndpointService endpoints) =>
         {
