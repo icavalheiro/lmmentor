@@ -137,6 +137,58 @@ public class AdminApiTests
         Assert.True(updated.GetProperty("ollamaCompatibilityEnabled").GetBoolean());
     }
 
+    [Fact]
+    public async Task Settings_PersistTheModelVerificationTtl()
+    {
+        using var factory = new LMMentorAppFactory();
+        var client = await factory.CreateAdminClientAsync();
+
+        var initial = await LMMentorAppFactory.ReadJsonAsync(await client.GetAsync("/api/settings"));
+        Assert.Equal(300, initial.GetProperty("modelVerificationTtlSeconds").GetInt32());
+
+        await client.PutAsJsonAsync("/api/settings", new { ollamaCompatibilityEnabled = false, modelVerificationTtlSeconds = 60 });
+
+        var updated = await LMMentorAppFactory.ReadJsonAsync(await client.GetAsync("/api/settings"));
+        Assert.Equal(60, updated.GetProperty("modelVerificationTtlSeconds").GetInt32());
+    }
+
+    [Fact]
+    public async Task Models_RevalidateTheUpstreamAndPersistAContextChange()
+    {
+        using var factory = new LMMentorAppFactory();
+        factory.Upstream.RespondJson(UpstreamModelsUrl, """{ "data": [ { "id": "gpt-4o", "context_length": 8000 } ] }""");
+        var client = await factory.CreateAdminClientAsync();
+        await CreateEndpointAsync(client);
+
+        // TTL zero: a listagem revalida o upstream a cada chamada.
+        await client.PutAsJsonAsync("/api/settings", new { ollamaCompatibilityEnabled = false, modelVerificationTtlSeconds = 0 });
+
+        // O provedor recarrega o modelo com outro contexto.
+        factory.Upstream.RespondJson(UpstreamModelsUrl, """{ "data": [ { "id": "gpt-4o", "context_length": 128000 } ] }""");
+
+        var models = await LMMentorAppFactory.ReadJsonAsync(await client.GetAsync("/api/models"));
+        var model = Assert.Single(models.EnumerateArray().ToList());
+        Assert.Equal(128000, model.GetProperty("contextSize").GetInt32());
+    }
+
+    [Fact]
+    public async Task Models_KeepTheCatalogWhenTheUpstreamProbeFails()
+    {
+        using var factory = new LMMentorAppFactory();
+        factory.Upstream.RespondJson(UpstreamModelsUrl, """{ "data": [ { "id": "gpt-4o" } ] }""");
+        var client = await factory.CreateAdminClientAsync();
+        var endpointId = await CreateEndpointAsync(client);
+
+        await client.PutAsJsonAsync("/api/settings", new { ollamaCompatibilityEnabled = false, modelVerificationTtlSeconds = 0 });
+        factory.Upstream.Respond(UpstreamModelsUrl, HttpStatusCode.ServiceUnavailable, """{ "error": "down" }""");
+
+        var models = await LMMentorAppFactory.ReadJsonAsync(await client.GetAsync("/api/models"));
+        Assert.Single(models.EnumerateArray().ToList());
+
+        var endpoint = await LMMentorAppFactory.ReadJsonAsync(await client.GetAsync($"/api/endpoints/{endpointId}"));
+        Assert.Equal("offline", endpoint.GetProperty("status").GetString());
+    }
+
     private static async Task<string> CreateEndpointAsync(HttpClient client)
     {
         var created = await LMMentorAppFactory.ReadJsonAsync(await client.PostAsJsonAsync("/api/endpoints", NewEndpointRequest()));

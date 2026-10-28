@@ -23,9 +23,9 @@ public class RelayServiceTests : IDisposable
     public RelayServiceTests()
     {
         var httpClientFactory = new StubHttpClientFactory(_handler);
-        _endpoints = new EndpointService(_database.Db, new ModelDiscoveryService(httpClientFactory));
-        _keys = new ApiKeyService(_database.Db);
         _settings = new ApplicationSettingsService(_database.Db);
+        _endpoints = new EndpointService(_database.Db, new ModelDiscoveryService(httpClientFactory), _settings);
+        _keys = new ApiKeyService(_database.Db);
         _usageLogger = new UsageLogger(_database.Db);
         _usage = new UsageService(_database.Db, _usageLogger, _endpoints, _keys);
         _relay = new RelayService(httpClientFactory, _endpoints, _keys, _usage, _settings);
@@ -58,7 +58,7 @@ public class RelayServiceTests : IDisposable
         await SeedCatalogAsync();
         var key = _keys.Create("CI key", null);
 
-        var payload = JsonSerializer.SerializeToElement(_relay.ListModels(key.Value));
+        var payload = JsonSerializer.SerializeToElement(await _relay.ListModels(key.Value, CancellationToken.None));
         var data = payload.GetProperty("data").EnumerateArray().ToList();
 
         var model = Assert.Single(data);
@@ -72,21 +72,21 @@ public class RelayServiceTests : IDisposable
         var (exposed, _) = await SeedCatalogAsync();
         var scopedToAnotherModel = _keys.Create("scoped", ["some-other-model-id"]);
 
-        var payload = JsonSerializer.SerializeToElement(_relay.ListModels(scopedToAnotherModel.Value));
+        var payload = JsonSerializer.SerializeToElement(await _relay.ListModels(scopedToAnotherModel.Value, CancellationToken.None));
         Assert.Empty(payload.GetProperty("data").EnumerateArray());
 
         var scopedToThisModel = _keys.Create("allowed", [exposed.Id]);
-        var allowed = JsonSerializer.SerializeToElement(_relay.ListModels(scopedToThisModel.Value));
+        var allowed = JsonSerializer.SerializeToElement(await _relay.ListModels(scopedToThisModel.Value, CancellationToken.None));
         Assert.Single(allowed.GetProperty("data").EnumerateArray());
     }
 
     [Fact]
-    public void ListModels_RequiresAValidKey()
+    public async Task ListModels_RequiresAValidKey()
     {
-        var missingKey = Assert.Throws<RelayException>(() => _relay.ListModels(null));
+        var missingKey = await Assert.ThrowsAsync<RelayException>(() => _relay.ListModels(null, CancellationToken.None));
         Assert.Equal(HttpStatusCode.Unauthorized, missingKey.StatusCode);
 
-        var unknownKey = Assert.Throws<RelayException>(() => _relay.ListModels("sk-lm-unknown"));
+        var unknownKey = await Assert.ThrowsAsync<RelayException>(() => _relay.ListModels("sk-lm-unknown", CancellationToken.None));
         Assert.Equal(HttpStatusCode.Unauthorized, unknownKey.StatusCode);
     }
 
@@ -96,9 +96,27 @@ public class RelayServiceTests : IDisposable
         await SeedCatalogAsync();
         _settings.SetOllamaCompatibilityEnabled(true);
 
-        var payload = JsonSerializer.SerializeToElement(_relay.ListModels(null));
+        var payload = JsonSerializer.SerializeToElement(await _relay.ListModels(null, CancellationToken.None));
 
         Assert.Single(payload.GetProperty("data").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task ListModels_KeepsServingTheCatalogWhenTheUpstreamProbeFails()
+    {
+        await SeedCatalogAsync();
+        var key = _keys.Create("CI key", null);
+
+        // TTL zero força nova sonda; o upstream passa a falhar (modelo removido do stub).
+        _settings.SetModelVerificationTtlSeconds(0);
+        _handler.Respond(ModelsUrl, HttpStatusCode.InternalServerError, """{ "error": "boom" }""");
+
+        var payload = JsonSerializer.SerializeToElement(await _relay.ListModels(key.Value, CancellationToken.None));
+
+        // Falha do upstream não apaga o catálogo curado nem devolve erro ao cliente.
+        var model = Assert.Single(payload.GetProperty("data").EnumerateArray());
+        Assert.Equal("fast", model.GetProperty("id").GetString());
+        Assert.Equal("offline", _endpoints.GetById(_endpoints.GetAll().Single().Id)!.Status);
     }
 
     [Fact]
@@ -276,7 +294,7 @@ public class RelayServiceTests : IDisposable
         await SeedAnthropicCatalogAsync();
         var key = _keys.Create("CI key", null);
 
-        var payload = JsonSerializer.SerializeToElement(_relay.ListAnthropicModels(key.Value));
+        var payload = JsonSerializer.SerializeToElement(await _relay.ListAnthropicModels(key.Value, CancellationToken.None));
         var model = Assert.Single(payload.GetProperty("data").EnumerateArray());
 
         Assert.Equal("fast", model.GetProperty("id").GetString());

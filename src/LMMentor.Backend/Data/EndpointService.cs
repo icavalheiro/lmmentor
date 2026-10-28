@@ -1,6 +1,5 @@
 using LiteDB;
 using Microsoft.AspNetCore.Http;
-using System.Collections;
 using LMMentor.Backend.Data.Entities;
 
 namespace LMMentor.Backend.Data;
@@ -102,9 +101,9 @@ public sealed class EndpointService
         {
             await EnsureFreshAsync(endpointId, ct);
         }
-        catch
+        catch (Exception) when (!ct.IsCancellationRequested)
         {
-            // Upstream falhou: retorna dados do banco sem erro.
+            // Upstream falhou: retorna os dados do banco sem erro (podem estar stale).
         }
 
         return GetModelsByEndpoint(endpointId);
@@ -128,7 +127,7 @@ public sealed class EndpointService
             {
                 await EnsureFreshAsync(endpointId, ct);
             }
-            catch
+            catch (Exception) when (!ct.IsCancellationRequested)
             {
                 // Upstream falhou para este endpoint: mantém dados cacheados sem erro.
             }
@@ -168,6 +167,11 @@ public sealed class EndpointService
             {
                 _models.Delete(model.Id);
             }
+
+            lock (_cacheLock)
+            {
+                _verificationCache.Remove(id);
+            }
         }
 
         return deleted;
@@ -188,6 +192,17 @@ public sealed class EndpointService
         }
 
         var (online, discovered) = await _discovery.DiscoverAsync(endpoint, ct);
+
+        // Sonda que falhou (timeout, offline, resposta inválida) não remove nem insere nada:
+        // apagar o catálogo por uma falha transitória perderia aliases, habilitação e
+        // agendamentos. O status "offline" sinaliza que os dados podem estar desatualizados.
+        if (!online)
+        {
+            endpoint.Status = "offline";
+            endpoint.LastCheckedAt = DateTime.UtcNow;
+            _endpoints.Update(endpoint);
+            return Normalize(endpoint);
+        }
 
         var existing = _models.FindAll().Where(m => m.EndpointId == id).ToList();
         var byUpstreamId = existing.ToDictionary(m => m.UpstreamModelId, StringComparer.Ordinal);

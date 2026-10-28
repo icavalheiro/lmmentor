@@ -64,29 +64,36 @@ public sealed class RelayService
         _settings = settings;
     }
 
+    /// <summary>
+    /// Revalida no upstream os endpoints dos modelos informados, respeitando o cache TTL.
+    /// Falha de um endpoint não interrompe os demais nem a listagem.
+    /// </summary>
+    private async Task EnsureEndpointsFreshAsync(IEnumerable<ModelDto> models, CancellationToken ct)
+    {
+        foreach (var endpointId in models.Select(m => m.EndpointId).Distinct())
+        {
+            try
+            {
+                await _endpoints.EnsureFreshAsync(endpointId, ct);
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                // Upstream offline ou timeout: mantém os dados cacheados sem erro.
+            }
+        }
+    }
+
     /// <summary>Modelos habilitados e permitidos pela chave, no formato da lista do OpenAI.</summary>
     public async Task<object> ListModels(string? apiKeyValue, CancellationToken ct)
     {
         var key = ResolveKey(apiKeyValue);
         var bypassesAuthentication = _settings.OllamaCompatibilityEnabled;
 
-        // Garante que os dados de cada endpoint com modelos habilitados estão atualizados.
-        var enabledEndpoints = _endpoints.GetAllModelDtos()
+        // Antes de montar a lista, garante que os endpoints expostos a esta chave estão atualizados.
+        var candidates = _endpoints.GetAllModelDtos()
             .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
-            .Select(m => m.EndpointId)
-            .Distinct();
-
-        foreach (var endpointId in enabledEndpoints)
-        {
-            try
-            {
-                await _endpoints.EnsureFreshAsync(endpointId, ct);
-            }
-            catch
-            {
-                // Upstream offline ou timeout: mantém dados cacheados sem erro.
-            }
-        }
+            .ToList();
+        await EnsureEndpointsFreshAsync(candidates, ct);
 
         var models = _endpoints.GetAllModelDtos()
             .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
@@ -206,10 +213,17 @@ public sealed class RelayService
 
     /// <summary>Modelos habilitados e permitidos pela chave, no formato da Anthropic Models API
     /// (usado na descoberta de modelos do Claude Code via gateway).</summary>
-    public object ListAnthropicModels(string? apiKeyValue)
+    public async Task<object> ListAnthropicModels(string? apiKeyValue, CancellationToken ct)
     {
         var key = ResolveKey(apiKeyValue);
         var bypassesAuthentication = _settings.OllamaCompatibilityEnabled;
+
+        // O Claude Code descobre o catálogo por aqui: a revalidação também vale para este formato.
+        var candidates = _endpoints.GetAllModelDtos()
+            .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
+            .ToList();
+        await EnsureEndpointsFreshAsync(candidates, ct);
+
         var data = _endpoints.GetAllModelDtos()
             .Where(m => m.Enabled && (bypassesAuthentication || IsModelAllowed(key!, m.Id)))
             .Select(m => new

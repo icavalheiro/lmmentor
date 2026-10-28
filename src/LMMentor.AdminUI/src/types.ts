@@ -60,6 +60,8 @@ export interface ApiKey
 export interface ApplicationSettings
 {
     ollamaCompatibilityEnabled: boolean;
+    // TTL (segundos) da revalidação upstream antes de listar modelos; 0 revalida sempre.
+    modelVerificationTtlSeconds?: number;
 }
 
 // Uso agregado por dia (para o gráfico do dashboard).

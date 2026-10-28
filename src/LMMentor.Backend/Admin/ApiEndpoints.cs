@@ -16,7 +16,7 @@ public sealed record SetModelScheduleRequest(List<AvailabilityWindowRequest> Blo
 
 public sealed record CreateKeyRequest(string Name, List<string>? AllowedModelIds);
 
-public sealed record UpdateSettingsRequest(bool OllamaCompatibilityEnabled);
+public sealed record UpdateSettingsRequest(bool OllamaCompatibilityEnabled, int? ModelVerificationTtlSeconds);
 
 /// <summary>
 /// Endpoints de administração (protegidos por autenticação): CRUD de endpoints de API,
@@ -126,7 +126,17 @@ public static class ApiEndpoints
         group.MapGet("/settings", (ApplicationSettingsService settings) => Results.Ok(settings.Get()));
 
         group.MapPut("/settings", (UpdateSettingsRequest request, ApplicationSettingsService settings) =>
-            Results.Ok(settings.SetOllamaCompatibilityEnabled(request.OllamaCompatibilityEnabled)));
+        {
+            var updated = settings.SetOllamaCompatibilityEnabled(request.OllamaCompatibilityEnabled);
+
+            // TTL opcional: 0 força a revalidação upstream em toda listagem de modelos.
+            if (request.ModelVerificationTtlSeconds is { } ttl)
+            {
+                updated = settings.SetModelVerificationTtlSeconds(Math.Max(0, ttl));
+            }
+
+            return Results.Ok(updated);
+        });
 
         // Resumo de uso para o dashboard.
         group.MapGet("/usage/summary", (UsageService usage, int? days) =>
